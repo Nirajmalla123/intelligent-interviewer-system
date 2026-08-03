@@ -203,7 +203,7 @@ export class ReportRepository {
         recommendation: input.recommendation,
         strengths: input.strengths,
         weaknesses: input.weaknesses,
-        chart_data: input.chartData,
+        chart_data: input.chartData as never,
       },
       { onConflict: "interview_id" },
     );
