@@ -1,24 +1,92 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { Button } from "@/components/ui/button";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { BrainCircuit, Eye, Gauge, Mic } from "lucide-react";
 
-// No head() here: the home route inherits title/description/og/twitter from
-// __root.tsx, and ships no og:image so serve-time hosting can inject the
-// project's social preview (explicit og:image or latest screenshot).
 export const Route = createFileRoute("/")({
-  component: Index,
+  head: () => ({
+    meta: [
+      { title: "Signal Room — AI Video Interview Assessment" },
+      {
+        name: "description",
+        content:
+          "Practice role-based technical interviews on camera and get scored on content, speech, expression, eye contact and voice.",
+      },
+      { property: "og:title", content: "Signal Room — AI Video Interview Assessment" },
+      {
+        property: "og:description",
+        content:
+          "Role-based AI video interviews scored across language, vision and voice signals.",
+      },
+    ],
+  }),
+  component: Landing,
 });
 
-// IMPORTANT: Replace this placeholder. See ./README.md for routing conventions.
-function Index() {
+const FEATURES = [
+  {
+    icon: BrainCircuit,
+    title: "Adaptive questioning",
+    body: "Question plans are generated for your target role and seniority, with follow-ups driven by what you actually said.",
+  },
+  {
+    icon: Eye,
+    title: "Vision signals",
+    body: "In-browser face landmarking tracks eye contact, head stability and expression while you answer.",
+  },
+  {
+    icon: Mic,
+    title: "Speech & voice",
+    body: "Answers are transcribed and analysed for pace, pauses, energy and vocal confidence.",
+  },
+  {
+    icon: Gauge,
+    title: "Scored reports",
+    body: "A weighted scorecard with per-answer breakdowns, strengths, development areas and a recommendation.",
+  },
+];
+
+function Landing() {
   return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
+    <div className="min-h-screen bg-background">
+      <header className="mx-auto flex max-w-6xl items-center justify-between px-4 py-5">
+        <span className="flex items-center gap-2 font-semibold text-foreground">
+          <BrainCircuit className="size-5 text-primary" />
+          Signal Room
+        </span>
+        <Button asChild size="sm">
+          <Link to="/auth">Sign in</Link>
+        </Button>
+      </header>
+
+      <main className="mx-auto max-w-6xl px-4 pb-20">
+        <section className="py-16 md:py-24">
+          <p className="text-sm font-medium uppercase tracking-[0.2em] text-primary">
+            Multimodal interview assessment
+          </p>
+          <h1 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight text-foreground md:text-6xl">
+            Interviews scored on what you say, how you say it, and how you show up.
+          </h1>
+          <p className="mt-6 max-w-2xl text-lg text-muted-foreground">
+            Signal Room runs a role-based technical interview on camera, then fuses language,
+            speech, facial and vocal signals into one transparent scorecard.
+          </p>
+          <div className="mt-8 flex flex-wrap gap-3">
+            <Button asChild size="lg">
+              <Link to="/auth">Start an interview</Link>
+            </Button>
+          </div>
+        </section>
+
+        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {FEATURES.map((feature) => (
+            <div key={feature.title} className="rounded-xl border border-border bg-card p-5">
+              <feature.icon className="size-5 text-primary" />
+              <h2 className="mt-3 font-medium text-foreground">{feature.title}</h2>
+              <p className="mt-1.5 text-sm text-muted-foreground">{feature.body}</p>
+            </div>
+          ))}
+        </section>
+      </main>
     </div>
   );
 }
