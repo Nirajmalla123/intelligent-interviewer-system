@@ -135,14 +135,10 @@ function AuthPage() {
                   </form>
                 </TabsContent>
 
-                <div className="mt-5 space-y-3">
-                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                    <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
-                  </div>
-                  <Button variant="outline" className="w-full" onClick={google} type="button">
-                    Continue with Google
-                  </Button>
-                </div>
+                <p className="mt-5 text-center text-xs text-muted-foreground">
+                  Your recordings stay private to your account.
+                </p>
+
               </Tabs>
             )}
           </CardContent>
