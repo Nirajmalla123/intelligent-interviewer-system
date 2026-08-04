@@ -14,6 +14,7 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedInterviewInterviewIdRouteImport } from './routes/_authenticated/interview.$interviewId'
+import { Route as AuthenticatedReportInterviewIdRouteImport } from './routes/_authenticated/report.$interviewId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -40,18 +41,26 @@ const AuthenticatedInterviewInterviewIdRoute =
     path: '/interview/$interviewId',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedReportInterviewIdRoute =
+  AuthenticatedReportInterviewIdRouteImport.update({
+    id: '/report/$interviewId',
+    path: '/report/$interviewId',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/interview/$interviewId': typeof AuthenticatedInterviewInterviewIdRoute
+  '/report/$interviewId': typeof AuthenticatedReportInterviewIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/interview/$interviewId': typeof AuthenticatedInterviewInterviewIdRoute
+  '/report/$interviewId': typeof AuthenticatedReportInterviewIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -60,12 +69,23 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/interview/$interviewId': typeof AuthenticatedInterviewInterviewIdRoute
+  '/_authenticated/report/$interviewId': typeof AuthenticatedReportInterviewIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/dashboard' | '/interview/$interviewId'
+  fullPaths:
+    | '/'
+    | '/auth'
+    | '/dashboard'
+    | '/interview/$interviewId'
+    | '/report/$interviewId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/dashboard' | '/interview/$interviewId'
+  to:
+    | '/'
+    | '/auth'
+    | '/dashboard'
+    | '/interview/$interviewId'
+    | '/report/$interviewId'
   id:
     | '__root__'
     | '/'
@@ -73,6 +93,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/_authenticated/dashboard'
     | '/_authenticated/interview/$interviewId'
+    | '/_authenticated/report/$interviewId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -118,18 +139,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedInterviewInterviewIdRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/report/$interviewId': {
+      id: '/_authenticated/report/$interviewId'
+      path: '/report/$interviewId'
+      fullPath: '/report/$interviewId'
+      preLoaderRoute: typeof AuthenticatedReportInterviewIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
   }
 }
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedInterviewInterviewIdRoute: typeof AuthenticatedInterviewInterviewIdRoute
+  AuthenticatedReportInterviewIdRoute: typeof AuthenticatedReportInterviewIdRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedInterviewInterviewIdRoute:
     AuthenticatedInterviewInterviewIdRoute,
+  AuthenticatedReportInterviewIdRoute: AuthenticatedReportInterviewIdRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
