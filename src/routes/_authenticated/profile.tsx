@@ -71,7 +71,7 @@ function ProfilePage() {
           targetRole: form.targetRole || null,
           yearsExperience: Number(form.yearsExperience) || 0,
           location: form.location || null,
-          resumeText: form.resumeText || null,
+          resumeText: form.resumeText,
         },
       }),
     onSuccess: () => {
