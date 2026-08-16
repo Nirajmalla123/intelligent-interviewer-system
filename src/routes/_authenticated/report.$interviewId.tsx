@@ -99,6 +99,17 @@ function ReportPage() {
       subtitle={`${data.candidateName} · ${new Date(data.startedAt).toLocaleString()}`}
     >
       <div className="space-y-6">
+        <div className="flex flex-wrap gap-2">
+          <Button asChild variant="outline" size="sm">
+            <Link to="/dashboard">
+              <ArrowLeft className="mr-2 size-4" /> Back to dashboard
+            </Link>
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => window.print()}>
+            <Printer className="mr-2 size-4" /> Print / save as PDF
+          </Button>
+        </div>
+
         <div className="grid gap-4 md:grid-cols-4">
           <Card className="md:col-span-1">
             <CardHeader>
