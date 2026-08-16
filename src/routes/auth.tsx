@@ -73,20 +73,9 @@ function AuthPage() {
     if (!data.session) {
       setSent(true);
       toast.success("Check your email to confirm your account");
-  }
-
-  async function signInWithGoogle() {
-    setBusy(true);
-    try {
-      await lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin });
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Google sign-in failed");
-    } finally {
-      setBusy(false);
     }
   }
 
-  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
