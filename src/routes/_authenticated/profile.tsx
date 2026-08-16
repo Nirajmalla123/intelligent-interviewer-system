@@ -140,7 +140,12 @@ function ProfilePage() {
                 />
               </Row>
             </div>
+            <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+              {mutation.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
+              Save changes
+            </Button>
           </CardContent>
+
         </Card>
 
         <Card>
