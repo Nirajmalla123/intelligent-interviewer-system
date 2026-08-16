@@ -220,16 +220,19 @@ export const saveMyAccount = createServerFn({ method: "POST" })
       yearsExperience: data.yearsExperience,
       location: data.location,
     });
-    if (data.resumeText && data.resumeText.trim().length > 0) {
+    if (data.resumeText !== null) {
       const resumes = new ResumeRepository(db);
       await resumes.deleteAllFor(context.userId);
-      await resumes.create({
-        userId: context.userId,
-        filePath: `${context.userId}/pasted.txt`,
-        fileName: "pasted-resume.txt",
-        extractedText: data.resumeText.trim(),
-      });
+      if (data.resumeText.trim().length > 0) {
+        await resumes.create({
+          userId: context.userId,
+          filePath: `${context.userId}/pasted.txt`,
+          fileName: "pasted-resume.txt",
+          extractedText: data.resumeText.trim(),
+        });
+      }
     }
+
     return { ok: true };
   });
 
