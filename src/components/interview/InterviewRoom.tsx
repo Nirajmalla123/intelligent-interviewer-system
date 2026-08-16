@@ -261,8 +261,8 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {phase === "ready" && (
-              <Button onClick={startRecording} disabled={!current}>
+            {phase === "ready" && current && (
+              <Button onClick={startRecording}>
                 <Mic className="mr-2 size-4" />
                 {answered.length === 0 ? "Start answering" : "Record next answer"}
               </Button>
@@ -274,13 +274,20 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
             )}
             {phase === "analysing" && (
               <Button disabled>
-                <Loader2 className="mr-2 size-4 animate-spin" /> Analysing answer…
+                <Loader2 className="mr-2 size-4 animate-spin" /> Working…
+              </Button>
+            )}
+            {phase === "ready" && (
+              <Button variant="outline" onClick={() => void finishNow()}>
+                <CheckCircle2 className="mr-2 size-4" />
+                {current ? "End early & view report" : "Finish & view report"}
               </Button>
             )}
             <span className="text-xs text-muted-foreground">
               {answered.length} of {queue.length} answered
             </span>
           </div>
+
           <Progress value={progress} />
         </CardContent>
       </Card>
