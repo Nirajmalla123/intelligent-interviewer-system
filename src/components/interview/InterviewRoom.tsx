@@ -7,7 +7,7 @@ import type { QuestionDto } from "@/lib/domain/types";
 import { completeInterview, processAnswer } from "@/lib/interview.functions";
 import { useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { Loader2, Mic, Square, Video } from "lucide-react";
+import { CheckCircle2, Loader2, Mic, Square, Video } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -191,7 +191,24 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
     }
   }, [current, finish, interviewId, navigate, seconds, submitAnswer]);
 
+  const finishNow = useCallback(async () => {
+    setPhase("analysing");
+    try {
+      await finish({ data: { interviewId } });
+      faceRef.current?.close();
+      voiceRef.current?.stop();
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      setPhase("done");
+      toast.success("Interview closed — opening your report");
+      navigate({ to: "/report/$interviewId", params: { interviewId } });
+    } catch (error) {
+      setPhase("ready");
+      toast.error(error instanceof Error ? error.message : "Could not finish the interview");
+    }
+  }, [finish, interviewId, navigate]);
+
   const mmss = `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1.1fr_1fr]">
@@ -216,12 +233,20 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background/80 p-6 text-center">
                 <Video className="size-8 text-primary" />
                 <p className="text-sm text-muted-foreground">
-                  Your camera and microphone power the vision and voice analysis. Nothing is
-                  recorded until you press start.
+                  {current
+                    ? "Your camera and microphone power the vision and voice analysis. Nothing is recorded until you press start."
+                    : "You have answered every question. Finish up to generate your report."}
                 </p>
-                <Button onClick={arm}>Enable camera &amp; mic</Button>
+                {current ? (
+                  <Button onClick={arm}>Enable camera &amp; mic</Button>
+                ) : (
+                  <Button onClick={() => void finishNow()}>
+                    <CheckCircle2 className="mr-2 size-4" /> Finish &amp; view report
+                  </Button>
+                )}
               </div>
             )}
+
             {phase === "arming" && (
               <div className="absolute inset-0 flex items-center justify-center bg-background/80">
                 <Loader2 className="size-6 animate-spin text-primary" />
@@ -236,8 +261,8 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {phase === "ready" && (
-              <Button onClick={startRecording} disabled={!current}>
+            {phase === "ready" && current && (
+              <Button onClick={startRecording}>
                 <Mic className="mr-2 size-4" />
                 {answered.length === 0 ? "Start answering" : "Record next answer"}
               </Button>
@@ -249,13 +274,20 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
             )}
             {phase === "analysing" && (
               <Button disabled>
-                <Loader2 className="mr-2 size-4 animate-spin" /> Analysing answer…
+                <Loader2 className="mr-2 size-4 animate-spin" /> Working…
+              </Button>
+            )}
+            {phase === "ready" && (
+              <Button variant="outline" onClick={() => void finishNow()}>
+                <CheckCircle2 className="mr-2 size-4" />
+                {current ? "End early & view report" : "Finish & view report"}
               </Button>
             )}
             <span className="text-xs text-muted-foreground">
               {answered.length} of {queue.length} answered
             </span>
           </div>
+
           <Progress value={progress} />
         </CardContent>
       </Card>

@@ -71,7 +71,7 @@ function ProfilePage() {
           targetRole: form.targetRole || null,
           yearsExperience: Number(form.yearsExperience) || 0,
           location: form.location || null,
-          resumeText: form.resumeText || null,
+          resumeText: form.resumeText,
         },
       }),
     onSuccess: () => {
@@ -140,7 +140,12 @@ function ProfilePage() {
                 />
               </Row>
             </div>
+            <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+              {mutation.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
+              Save changes
+            </Button>
           </CardContent>
+
         </Card>
 
         <Card>
@@ -148,18 +153,46 @@ function ProfilePage() {
             <CardTitle className="text-base">Resume text</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="resume-file">Upload a plain-text resume (optional)</Label>
+              <Input
+                id="resume-file"
+                type="file"
+                accept=".txt,.md,text/plain,text/markdown"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const text = await file.text();
+                  setForm((prev) => ({ ...prev, resumeText: text.slice(0, 20000) }));
+                  toast.success(`Loaded ${file.name} — review it, then save`);
+                  e.target.value = "";
+                }}
+              />
+            </div>
             <Textarea
-              rows={16}
+              rows={14}
               placeholder="Paste your resume here — the interviewer uses it to ground questions in your real experience."
               value={form.resumeText}
               onChange={(e) => setForm({ ...form, resumeText: e.target.value })}
             />
-            <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
-              {mutation.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
-              Save profile
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+                {mutation.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
+                Save profile
+              </Button>
+              {form.resumeText && (
+                <Button
+                  variant="outline"
+                  onClick={() => setForm({ ...form, resumeText: "" })}
+                  disabled={mutation.isPending}
+                >
+                  Clear resume
+                </Button>
+              )}
+            </div>
           </CardContent>
         </Card>
+
       </div>
     </AppShell>
   );

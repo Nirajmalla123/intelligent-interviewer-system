@@ -1,13 +1,15 @@
 import { AppShell } from "@/components/layout/AppShell";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { scoreTone } from "@/lib/domain/scoring";
 import { getReport } from "@/lib/interview.functions";
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { Loader2 } from "lucide-react";
+import { ArrowLeft, Loader2, Printer } from "lucide-react";
+
 import {
   Bar,
   BarChart,
@@ -69,12 +71,25 @@ function ReportPage() {
   if (report.isError || !report.data) {
     return (
       <AppShell title="Assessment report">
-        <p className="text-sm text-destructive">
-          {report.error instanceof Error ? report.error.message : "Report unavailable"}
-        </p>
+        <div className="space-y-4">
+          <p className="text-sm text-destructive">
+            {report.error instanceof Error ? report.error.message : "Report unavailable"}
+          </p>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => void report.refetch()}>
+              Try again
+            </Button>
+            <Button asChild size="sm">
+              <Link to="/dashboard">
+                <ArrowLeft className="mr-2 size-4" /> Back to dashboard
+              </Link>
+            </Button>
+          </div>
+        </div>
       </AppShell>
     );
   }
+
 
   const data = report.data;
   const s = data.scores;
@@ -99,6 +114,17 @@ function ReportPage() {
       subtitle={`${data.candidateName} · ${new Date(data.startedAt).toLocaleString()}`}
     >
       <div className="space-y-6">
+        <div className="flex flex-wrap gap-2">
+          <Button asChild variant="outline" size="sm">
+            <Link to="/dashboard">
+              <ArrowLeft className="mr-2 size-4" /> Back to dashboard
+            </Link>
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => window.print()}>
+            <Printer className="mr-2 size-4" /> Print / save as PDF
+          </Button>
+        </div>
+
         <div className="grid gap-4 md:grid-cols-4">
           <Card className="md:col-span-1">
             <CardHeader>

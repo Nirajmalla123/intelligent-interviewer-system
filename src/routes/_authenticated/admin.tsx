@@ -55,7 +55,13 @@ function AdminPage() {
               {all.error instanceof Error ? all.error.message : "Could not load interviews"}
             </p>
           )}
-          {all.data && (
+          {all.data?.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              No interviews have been recorded yet.
+            </p>
+          )}
+          {all.data && all.data.length > 0 && (
+
             <Table>
               <TableHeader>
                 <TableRow>
