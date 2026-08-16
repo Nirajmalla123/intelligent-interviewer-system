@@ -191,7 +191,24 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
     }
   }, [current, finish, interviewId, navigate, seconds, submitAnswer]);
 
+  const finishNow = useCallback(async () => {
+    setPhase("analysing");
+    try {
+      await finish({ data: { interviewId } });
+      faceRef.current?.close();
+      voiceRef.current?.stop();
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      setPhase("done");
+      toast.success("Interview closed — opening your report");
+      navigate({ to: "/report/$interviewId", params: { interviewId } });
+    } catch (error) {
+      setPhase("ready");
+      toast.error(error instanceof Error ? error.message : "Could not finish the interview");
+    }
+  }, [finish, interviewId, navigate]);
+
   const mmss = `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1.1fr_1fr]">
