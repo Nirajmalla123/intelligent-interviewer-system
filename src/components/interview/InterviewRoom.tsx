@@ -7,7 +7,7 @@ import type { QuestionDto } from "@/lib/domain/types";
 import { completeInterview, processAnswer } from "@/lib/interview.functions";
 import { useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { Loader2, Mic, Square, Video } from "lucide-react";
+import { CheckCircle2, Loader2, Mic, Square, Video } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
