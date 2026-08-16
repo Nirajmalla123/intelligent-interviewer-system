@@ -71,12 +71,25 @@ function ReportPage() {
   if (report.isError || !report.data) {
     return (
       <AppShell title="Assessment report">
-        <p className="text-sm text-destructive">
-          {report.error instanceof Error ? report.error.message : "Report unavailable"}
-        </p>
+        <div className="space-y-4">
+          <p className="text-sm text-destructive">
+            {report.error instanceof Error ? report.error.message : "Report unavailable"}
+          </p>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => void report.refetch()}>
+              Try again
+            </Button>
+            <Button asChild size="sm">
+              <Link to="/dashboard">
+                <ArrowLeft className="mr-2 size-4" /> Back to dashboard
+              </Link>
+            </Button>
+          </div>
+        </div>
       </AppShell>
     );
   }
+
 
   const data = report.data;
   const s = data.scores;
