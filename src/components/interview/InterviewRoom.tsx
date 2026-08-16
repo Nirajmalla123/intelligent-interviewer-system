@@ -233,12 +233,20 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background/80 p-6 text-center">
                 <Video className="size-8 text-primary" />
                 <p className="text-sm text-muted-foreground">
-                  Your camera and microphone power the vision and voice analysis. Nothing is
-                  recorded until you press start.
+                  {current
+                    ? "Your camera and microphone power the vision and voice analysis. Nothing is recorded until you press start."
+                    : "You have answered every question. Finish up to generate your report."}
                 </p>
-                <Button onClick={arm}>Enable camera &amp; mic</Button>
+                {current ? (
+                  <Button onClick={arm}>Enable camera &amp; mic</Button>
+                ) : (
+                  <Button onClick={() => void finishNow()}>
+                    <CheckCircle2 className="mr-2 size-4" /> Finish &amp; view report
+                  </Button>
+                )}
               </div>
             )}
+
             {phase === "arming" && (
               <div className="absolute inset-0 flex items-center justify-center bg-background/80">
                 <Loader2 className="size-6 animate-spin text-primary" />
