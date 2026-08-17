@@ -136,25 +136,10 @@ function AuthPage() {
                   </form>
                 </TabsContent>
 
-                <div className="relative my-5">
-                  <div className="h-px w-full bg-border" />
-                  <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-card px-2 text-xs uppercase tracking-wide text-muted-foreground">
-                    or
-                  </span>
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full"
-                  disabled={busy}
-                  onClick={signInWithGoogle}
-                >
-                  Continue with Google
-                </Button>
-
                 <p className="mt-5 text-center text-xs text-muted-foreground">
                   Your recordings stay private to your account.
                 </p>
+
 
               </Tabs>
 
