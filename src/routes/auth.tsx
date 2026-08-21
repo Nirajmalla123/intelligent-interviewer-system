@@ -65,16 +65,24 @@ function AuthPage() {
         data: { full_name: fullName },
       },
     });
-    setBusy(false);
     if (error) {
+      setBusy(false);
       toast.error(error.message);
       return;
     }
     if (!data.session) {
-      setSent(true);
-      toast.success("Check your email to confirm your account");
+      // Accounts are confirmed automatically — sign straight in.
+      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+      if (signInError) {
+        setBusy(false);
+        setSent(true);
+        toast.success("Account created — you can sign in now");
+        return;
+      }
     }
+    setBusy(false);
   }
+
 
 
   return (
