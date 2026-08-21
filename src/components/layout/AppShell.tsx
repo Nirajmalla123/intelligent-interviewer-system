@@ -2,8 +2,9 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { BrainCircuit, LogOut } from "lucide-react";
-import type { ReactNode } from "react";
+import { BrainCircuit, Loader2, LogOut } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { toast } from "sonner";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard" },
@@ -23,12 +24,21 @@ export function AppShell({
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [signingOut, setSigningOut] = useState(false);
 
   async function signOut() {
-    await queryClient.cancelQueries();
-    queryClient.clear();
-    await supabase.auth.signOut();
-    navigate({ to: "/auth", replace: true });
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      await queryClient.cancelQueries();
+      queryClient.clear();
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      navigate({ to: "/auth", replace: true });
+    } catch (error) {
+      setSigningOut(false);
+      toast.error(error instanceof Error ? error.message : "Could not sign out");
+    }
   }
 
   return (
@@ -60,8 +70,19 @@ export function AppShell({
               </Link>
             )}
           </nav>
-          <Button variant="ghost" size="sm" className="ml-auto" onClick={signOut}>
-            <LogOut className="mr-2 size-4" /> Sign out
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto"
+            disabled={signingOut}
+            onClick={() => void signOut()}
+          >
+            {signingOut ? (
+              <Loader2 className="mr-2 size-4 animate-spin" />
+            ) : (
+              <LogOut className="mr-2 size-4" />
+            )}
+            {signingOut ? "Signing out…" : "Sign out"}
           </Button>
         </div>
       </header>

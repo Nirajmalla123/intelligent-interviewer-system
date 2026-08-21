@@ -1,6 +1,8 @@
 import { Button } from "@/components/ui/button";
+import { supabase } from "@/integrations/supabase/client";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { BrainCircuit, Eye, Gauge, Mic } from "lucide-react";
+import { useEffect, useState } from "react";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -46,6 +48,18 @@ const FEATURES = [
 ];
 
 function Landing() {
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    void supabase.auth.getSession().then(({ data }) => setSignedIn(Boolean(data.session)));
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) =>
+      setSignedIn(Boolean(session)),
+    );
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  const primaryTo = signedIn ? "/dashboard" : "/auth";
+
   return (
     <div className="min-h-screen bg-background">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-4 py-5">
@@ -53,8 +67,8 @@ function Landing() {
           <BrainCircuit className="size-5 text-primary" />
           Signal Room
         </span>
-        <Button asChild size="sm">
-          <Link to="/auth">Sign in</Link>
+        <Button asChild size="sm" variant={signedIn ? "default" : "outline"}>
+          <Link to={primaryTo}>{signedIn ? "Go to dashboard" : "Sign in"}</Link>
         </Button>
       </header>
 
@@ -72,12 +86,15 @@ function Landing() {
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Button asChild size="lg">
-              <Link to="/auth">Start an interview</Link>
+              <Link to={primaryTo}>{signedIn ? "Continue to dashboard" : "Start an interview"}</Link>
+            </Button>
+            <Button asChild size="lg" variant="outline">
+              <a href="#how-it-works">See how scoring works</a>
             </Button>
           </div>
         </section>
 
-        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <section id="how-it-works" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {FEATURES.map((feature) => (
             <div key={feature.title} className="rounded-xl border border-border bg-card p-5">
               <feature.icon className="size-5 text-primary" />
