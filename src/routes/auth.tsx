@@ -65,16 +65,24 @@ function AuthPage() {
         data: { full_name: fullName },
       },
     });
-    setBusy(false);
     if (error) {
+      setBusy(false);
       toast.error(error.message);
       return;
     }
     if (!data.session) {
-      setSent(true);
-      toast.success("Check your email to confirm your account");
+      // Accounts are confirmed automatically — sign straight in.
+      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+      if (signInError) {
+        setBusy(false);
+        setSent(true);
+        toast.success("Account created — you can sign in now");
+        return;
+      }
     }
+    setBusy(false);
   }
+
 
 
   return (
@@ -88,8 +96,10 @@ function AuthPage() {
           <CardContent className="pt-6">
             {sent ? (
               <p className="text-center text-sm text-muted-foreground">
-                We sent a confirmation link to <strong>{email}</strong>. Confirm it, then sign in.
+                Your account for <strong>{email}</strong> is ready. Switch to the sign in tab to
+                continue.
               </p>
+
             ) : (
               <Tabs defaultValue="signin">
                 <TabsList className="grid w-full grid-cols-2">
