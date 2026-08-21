@@ -248,8 +248,9 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
             )}
 
             {phase === "arming" && (
-              <div className="absolute inset-0 flex items-center justify-center bg-background/80">
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background/80">
                 <Loader2 className="size-6 animate-spin text-primary" />
+                <p className="text-xs text-muted-foreground">Requesting camera and microphone…</p>
               </div>
             )}
           </div>
@@ -268,13 +269,18 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
               </Button>
             )}
             {phase === "recording" && (
-              <Button variant="destructive" onClick={stopRecording}>
+              <Button variant="destructive" onClick={() => void stopRecording()}>
                 <Square className="mr-2 size-4" /> Stop &amp; analyse
               </Button>
             )}
             {phase === "analysing" && (
               <Button disabled>
-                <Loader2 className="mr-2 size-4 animate-spin" /> Working…
+                <Loader2 className="mr-2 size-4 animate-spin" /> Analysing your answer…
+              </Button>
+            )}
+            {phase === "recording" && (
+              <Button variant="outline" disabled>
+                Recording — stop to submit
               </Button>
             )}
             {phase === "ready" && (

@@ -14,7 +14,7 @@ import { getMyAccount, listMyInterviews, startInterview } from "@/lib/interview.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { Loader2, Play } from "lucide-react";
+import { Loader2, Play, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -107,14 +107,14 @@ function DashboardPage() {
             <Button
               className="w-full"
               onClick={() => start.mutate()}
-              disabled={start.isPending}
+              disabled={start.isPending || account.isLoading}
             >
               {start.isPending ? (
                 <Loader2 className="mr-2 size-4 animate-spin" />
               ) : (
                 <Play className="mr-2 size-4" />
               )}
-              Generate questions &amp; begin
+              {start.isPending ? "Generating questions…" : "Generate questions & begin"}
             </Button>
             {!account.data?.resumeText && (
               <p className="text-xs text-muted-foreground">
@@ -129,11 +129,34 @@ function DashboardPage() {
         </Card>
 
         <Card>
-          <CardHeader>
+          <CardHeader className="flex-row items-center justify-between gap-2">
             <CardTitle className="text-base">Your interviews</CardTitle>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={interviews.isFetching}
+              onClick={() => void interviews.refetch()}
+            >
+              <RefreshCw
+                className={`mr-2 size-4 ${interviews.isFetching ? "animate-spin" : ""}`}
+              />
+              Refresh
+            </Button>
           </CardHeader>
           <CardContent className="space-y-3">
             {interviews.isLoading && <Loader2 className="size-5 animate-spin text-primary" />}
+            {interviews.isError && (
+              <div className="space-y-2">
+                <p className="text-sm text-destructive">
+                  {interviews.error instanceof Error
+                    ? interviews.error.message
+                    : "Could not load your interviews"}
+                </p>
+                <Button size="sm" variant="outline" onClick={() => void interviews.refetch()}>
+                  Try again
+                </Button>
+              </div>
+            )}
             {interviews.data?.length === 0 && (
               <p className="text-sm text-muted-foreground">
                 No interviews yet — start your first one on the left.
