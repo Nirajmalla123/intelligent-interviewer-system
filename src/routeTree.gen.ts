@@ -15,6 +15,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedProfileRouteImport } from './routes/_authenticated/profile'
+import { Route as ApiTtsRouteImport } from './routes/api/tts'
 import { Route as AuthenticatedInterviewInterviewIdRouteImport } from './routes/_authenticated/interview.$interviewId'
 import { Route as AuthenticatedReportInterviewIdRouteImport } from './routes/_authenticated/report.$interviewId'
 
@@ -47,6 +48,11 @@ const AuthenticatedProfileRoute = AuthenticatedProfileRouteImport.update({
   path: '/profile',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const ApiTtsRoute = ApiTtsRouteImport.update({
+  id: '/api/tts',
+  path: '/api/tts',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedInterviewInterviewIdRoute =
   AuthenticatedInterviewInterviewIdRouteImport.update({
     id: '/interview/$interviewId',
@@ -66,6 +72,7 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AuthenticatedAdminRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/profile': typeof AuthenticatedProfileRoute
+  '/api/tts': typeof ApiTtsRoute
   '/interview/$interviewId': typeof AuthenticatedInterviewInterviewIdRoute
   '/report/$interviewId': typeof AuthenticatedReportInterviewIdRoute
 }
@@ -75,6 +82,7 @@ export interface FileRoutesByTo {
   '/admin': typeof AuthenticatedAdminRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/profile': typeof AuthenticatedProfileRoute
+  '/api/tts': typeof ApiTtsRoute
   '/interview/$interviewId': typeof AuthenticatedInterviewInterviewIdRoute
   '/report/$interviewId': typeof AuthenticatedReportInterviewIdRoute
 }
@@ -86,6 +94,7 @@ export interface FileRoutesById {
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/profile': typeof AuthenticatedProfileRoute
+  '/api/tts': typeof ApiTtsRoute
   '/_authenticated/interview/$interviewId': typeof AuthenticatedInterviewInterviewIdRoute
   '/_authenticated/report/$interviewId': typeof AuthenticatedReportInterviewIdRoute
 }
@@ -97,6 +106,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/dashboard'
     | '/profile'
+    | '/api/tts'
     | '/interview/$interviewId'
     | '/report/$interviewId'
   fileRoutesByTo: FileRoutesByTo
@@ -106,6 +116,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/dashboard'
     | '/profile'
+    | '/api/tts'
     | '/interview/$interviewId'
     | '/report/$interviewId'
   id:
@@ -116,6 +127,7 @@ export interface FileRouteTypes {
     | '/_authenticated/admin'
     | '/_authenticated/dashboard'
     | '/_authenticated/profile'
+    | '/api/tts'
     | '/_authenticated/interview/$interviewId'
     | '/_authenticated/report/$interviewId'
   fileRoutesById: FileRoutesById
@@ -124,6 +136,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
+  ApiTtsRoute: typeof ApiTtsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -170,6 +183,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedProfileRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/api/tts': {
+      id: '/api/tts'
+      path: '/api/tts'
+      fullPath: '/api/tts'
+      preLoaderRoute: typeof ApiTtsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/interview/$interviewId': {
       id: '/_authenticated/interview/$interviewId'
       path: '/interview/$interviewId'
@@ -211,6 +231,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
+  ApiTtsRoute: ApiTtsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

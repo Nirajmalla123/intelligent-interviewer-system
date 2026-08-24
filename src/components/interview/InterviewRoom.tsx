@@ -7,11 +7,40 @@ import type { QuestionDto } from "@/lib/domain/types";
 import { completeInterview, processAnswer } from "@/lib/interview.functions";
 import { useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { CheckCircle2, Loader2, Mic, Square, Video } from "lucide-react";
+import { CheckCircle2, Loader2, Square, Video, Volume2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-type Phase = "idle" | "arming" | "ready" | "recording" | "analysing" | "done";
+/** Interview machine states, driven automatically end to end. */
+type Phase =
+  | "idle"
+  | "arming"
+  | "question_speaking"
+  | "recording"
+  | "uploading"
+  | "analysing"
+  | "next_question"
+  | "generating_report"
+  | "completed"
+  | "error";
+
+const PHASE_LABEL: Record<Phase, string> = {
+  idle: "Ready when you are",
+  arming: "Enabling camera and microphone…",
+  question_speaking: "AI is asking a question…",
+  recording: "Recording your answer — just speak naturally",
+  uploading: "Uploading your answer…",
+  analysing: "Analysing your answer…",
+  next_question: "Preparing the next question…",
+  generating_report: "Generating your final report…",
+  completed: "Interview completed",
+  error: "Something went wrong",
+};
+
+const MIN_ANSWER_SECONDS = 6;
+const MAX_ANSWER_SECONDS = 150;
+const SILENCE_LEVEL = 0.035;
+const SILENCE_TO_STOP_MS = 3500;
 
 interface Props {
   interviewId: string;
@@ -37,6 +66,7 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
   );
   const [answered, setAnswered] = useState<string[]>(answeredQuestionIds);
   const [phase, setPhase] = useState<Phase>("idle");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [seconds, setSeconds] = useState(0);
   const [level, setLevel] = useState(0);
   const [eyeContact, setEyeContact] = useState(0);
@@ -50,20 +80,251 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
   const faceRef = useRef<import("@/lib/capture/face-analyzer").FaceAnalyzer | null>(null);
   const voiceRef = useRef<import("@/lib/capture/voice-analyzer").VoiceAnalyzer | null>(null);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
+
+  // Duplicate-execution guards (React re-renders / StrictMode safe).
+  const armedRef = useRef(false);
+  const runningQuestionRef = useRef<string | null>(null);
+  const stoppingRef = useRef(false);
+  const finishingRef = useRef(false);
+  const abandonedRef = useRef(false);
+  const secondsRef = useRef(0);
 
   const current = queue.find((q) => !answered.includes(q.id)) ?? null;
   const progress = queue.length ? (answered.length / queue.length) * 100 : 0;
 
-  useEffect(() => {
-    return () => {
-      if (tickRef.current) clearInterval(tickRef.current);
-      faceRef.current?.close();
-      voiceRef.current?.stop();
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-    };
+  const clearTick = () => {
+    if (tickRef.current) clearInterval(tickRef.current);
+    tickRef.current = null;
+  };
+
+  const stopSpeech = useCallback(() => {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.onended = null;
+      audio.onerror = null;
+      audio.pause();
+      audio.src = "";
+    }
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
+    }
   }, []);
 
+  const teardown = useCallback(() => {
+    abandonedRef.current = true;
+    clearTick();
+    stopSpeech();
+    try {
+      if (recorderRef.current && recorderRef.current.state !== "inactive") {
+        recorderRef.current.stop();
+      }
+    } catch {
+      /* recorder already gone */
+    }
+    faceRef.current?.close();
+    voiceRef.current?.stop();
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+  }, [stopSpeech]);
+
+  useEffect(() => teardown, [teardown]);
+
+  /** Speaks one question and resolves when playback has finished. */
+  const speak = useCallback(
+    async (text: string) => {
+      stopSpeech();
+      const response = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (!response.ok) {
+        throw new Error(
+          (await response.text().catch(() => "")) || "The interviewer voice is unavailable",
+        );
+      }
+      const blob = await response.blob();
+      if (abandonedRef.current) return;
+      const url = URL.createObjectURL(blob);
+      audioUrlRef.current = url;
+      const audio = audioRef.current ?? new Audio();
+      audioRef.current = audio;
+      audio.src = url;
+      await new Promise<void>((resolve, reject) => {
+        audio.onended = () => resolve();
+        audio.onerror = () => reject(new Error("Could not play the question audio"));
+        audio.play().catch(reject);
+      });
+    },
+    [stopSpeech],
+  );
+
+  const uploadAndAnalyse = useCallback(
+    async (question: QuestionDto, blob: Blob, durationSeconds: number) => {
+      faceRef.current?.stop();
+      voiceRef.current?.stop();
+      const vision = faceRef.current?.results() ?? null;
+      const voice = voiceRef.current?.results() ?? null;
+      if (!vision || !voice) throw new Error("Analysis modules did not initialise");
+
+      setPhase("uploading");
+      const { data: auth } = await supabase.auth.getUser();
+      let videoPath: string | null = null;
+      if (auth.user) {
+        const path = `${auth.user.id}/${interviewId}/${question.id}.webm`;
+        const { error } = await supabase.storage
+          .from("interview-videos")
+          .upload(path, blob, { contentType: "video/webm", upsert: true });
+        if (!error) videoPath = path;
+      }
+
+      const form = new FormData();
+      form.set("interviewId", interviewId);
+      form.set("questionId", question.id);
+      form.set("durationSeconds", String(durationSeconds));
+      if (videoPath) form.set("videoPath", videoPath);
+      form.set("face", JSON.stringify(vision.face));
+      form.set("emotion", JSON.stringify(vision.emotion));
+      form.set("voice", JSON.stringify(voice));
+      form.set("media", new File([blob], "answer.webm", { type: "video/webm" }));
+
+      // Backend does speech-to-text, multimodal evaluation and scoring.
+      setPhase("analysing");
+      return submitAnswer({ data: form });
+    },
+    [interviewId, submitAnswer],
+  );
+
+  const finalise = useCallback(async () => {
+    if (finishingRef.current) return;
+    finishingRef.current = true;
+    setPhase("generating_report");
+    try {
+      await finish({ data: { interviewId } });
+      teardown();
+      setPhase("completed");
+      toast.success("Interview complete — opening your report");
+      navigate({ to: "/report/$interviewId", params: { interviewId } });
+    } catch (error) {
+      finishingRef.current = false;
+      setErrorMessage(
+        error instanceof Error ? error.message : "Could not generate the final report",
+      );
+      setPhase("error");
+    }
+  }, [finish, interviewId, navigate, teardown]);
+
+  /**
+   * Runs one full question cycle: speak → record → auto-stop → upload →
+   * backend analysis → next question (or final report).
+   */
+  const runQuestion = useCallback(
+    async (question: QuestionDto) => {
+      const stream = streamRef.current;
+      if (!stream || !videoRef.current) return;
+
+      setFeedback(null);
+      setPhase("question_speaking");
+      try {
+        await speak(question.text);
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "The question could not be read aloud",
+        );
+      }
+      if (abandonedRef.current) return;
+
+      // ---- recording ----
+      chunksRef.current = [];
+      const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")
+        ? "video/webm;codecs=vp8,opus"
+        : "video/webm";
+      let recorder: MediaRecorder;
+      try {
+        recorder = new MediaRecorder(stream, { mimeType: mime });
+      } catch (error) {
+        setErrorMessage(
+          error instanceof Error ? error.message : "Recording is not supported in this browser",
+        );
+        setPhase("error");
+        return;
+      }
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      recorderRef.current = recorder;
+      stoppingRef.current = false;
+      recorder.start(1000);
+      faceRef.current?.start(videoRef.current);
+      voiceRef.current?.start(stream);
+      secondsRef.current = 0;
+      setSeconds(0);
+      setPhase("recording");
+
+      const blob = await new Promise<Blob>((resolve) => {
+        recorder.onstop = () => resolve(new Blob(chunksRef.current, { type: "video/webm" }));
+        let silentMs = 0;
+        clearTick();
+        tickRef.current = setInterval(() => {
+          secondsRef.current += 1;
+          const live = voiceRef.current?.liveLevel() ?? 0;
+          setSeconds(secondsRef.current);
+          setLevel(live);
+          setEyeContact(faceRef.current?.liveEyeContact() ?? 0);
+          setEmotion(faceRef.current?.liveDominantEmotion() ?? "neutral");
+
+          silentMs = live < SILENCE_LEVEL ? silentMs + 1000 : 0;
+          const enoughSilence =
+            secondsRef.current >= MIN_ANSWER_SECONDS && silentMs >= SILENCE_TO_STOP_MS;
+          if (
+            !stoppingRef.current &&
+            (enoughSilence || secondsRef.current >= MAX_ANSWER_SECONDS || abandonedRef.current)
+          ) {
+            stoppingRef.current = true;
+            clearTick();
+            if (recorder.state !== "inactive") recorder.stop();
+          }
+        }, 1000);
+      });
+      clearTick();
+      if (abandonedRef.current) return;
+
+      try {
+        const result = await uploadAndAnalyse(question, blob, secondsRef.current);
+        if (abandonedRef.current) return;
+        setAnswered((prev) => (prev.includes(question.id) ? prev : [...prev, question.id]));
+        setFeedback({
+          transcript: result.transcript,
+          evaluation: result.evaluation,
+          strengths: result.strengths,
+          weaknesses: result.weaknesses,
+        });
+        if (result.followUpQuestion) {
+          const followUp = result.followUpQuestion as QuestionDto;
+          setQueue((prev) => (prev.some((q) => q.id === followUp.id) ? prev : [...prev, followUp]));
+        }
+        if (result.interviewComplete) {
+          await finalise();
+          return;
+        }
+        setPhase("next_question");
+      } catch (error) {
+        setErrorMessage(
+          error instanceof Error ? error.message : "Could not analyse that answer",
+        );
+        setPhase("error");
+      }
+    },
+    [finalise, speak, uploadAndAnalyse],
+  );
+
   const arm = useCallback(async () => {
+    if (armedRef.current) return;
+    armedRef.current = true;
+    abandonedRef.current = false;
+    setErrorMessage(null);
     setPhase("arming");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -83,132 +344,51 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
       await face.init();
       faceRef.current = face;
       voiceRef.current = new VoiceAnalyzer();
-      setPhase("ready");
+      // Unlock audio playback within this user gesture.
+      audioRef.current = new Audio();
+      setPhase("next_question");
     } catch (error) {
-      setPhase("idle");
-      toast.error(
+      armedRef.current = false;
+      setErrorMessage(
         error instanceof Error
-          ? `Camera/mic unavailable: ${error.message}`
+          ? `Camera/microphone unavailable: ${error.message}`
           : "Camera and microphone access is required",
       );
+      setPhase("error");
     }
   }, []);
 
-  const startRecording = useCallback(() => {
-    const stream = streamRef.current;
-    if (!stream || !videoRef.current) return;
-    chunksRef.current = [];
-    const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")
-      ? "video/webm;codecs=vp8,opus"
-      : "video/webm";
-    const recorder = new MediaRecorder(stream, { mimeType: mime });
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) chunksRef.current.push(e.data);
-    };
-    recorderRef.current = recorder;
-    recorder.start(1000);
-
-    faceRef.current?.start(videoRef.current);
-    voiceRef.current?.start(stream);
-    setSeconds(0);
-    setFeedback(null);
-    setPhase("recording");
-    tickRef.current = setInterval(() => {
-      setSeconds((s) => s + 1);
-      setLevel(voiceRef.current?.liveLevel() ?? 0);
-      setEyeContact(faceRef.current?.liveEyeContact() ?? 0);
-      setEmotion(faceRef.current?.liveDominantEmotion() ?? "neutral");
-    }, 1000);
-  }, []);
-
-  const stopRecording = useCallback(async () => {
-    const recorder = recorderRef.current;
-    const question = current;
-    if (!recorder || !question) return;
-    if (tickRef.current) clearInterval(tickRef.current);
-    setPhase("analysing");
-
-    const blob = await new Promise<Blob>((resolve) => {
-      recorder.onstop = () => resolve(new Blob(chunksRef.current, { type: "video/webm" }));
-      recorder.stop();
-    });
-
-    faceRef.current?.stop();
-    voiceRef.current?.stop();
-    const vision = faceRef.current?.results() ?? null;
-    const voice = voiceRef.current?.results() ?? null;
-    if (!vision || !voice) {
-      toast.error("Analysis modules did not initialise");
-      setPhase("ready");
+  // Single driver: whenever the next question is due, run exactly one cycle.
+  useEffect(() => {
+    if (phase !== "next_question") return;
+    if (!current) {
+      void finalise();
       return;
     }
+    if (runningQuestionRef.current === current.id) return;
+    runningQuestionRef.current = current.id;
+    void runQuestion(current);
+  }, [current, finalise, phase, runQuestion]);
 
-    try {
-      const { data: auth } = await supabase.auth.getUser();
-      let videoPath: string | null = null;
-      if (auth.user) {
-        const path = `${auth.user.id}/${interviewId}/${question.id}.webm`;
-        const { error } = await supabase.storage
-          .from("interview-videos")
-          .upload(path, blob, { contentType: "video/webm", upsert: true });
-        if (!error) videoPath = path;
-      }
+  const retry = useCallback(() => {
+    setErrorMessage(null);
+    runningQuestionRef.current = null;
+    finishingRef.current = false;
+    abandonedRef.current = false;
+    setPhase(armedRef.current ? "next_question" : "idle");
+  }, []);
 
-      const form = new FormData();
-      form.set("interviewId", interviewId);
-      form.set("questionId", question.id);
-      form.set("durationSeconds", String(seconds));
-      if (videoPath) form.set("videoPath", videoPath);
-      form.set("face", JSON.stringify(vision.face));
-      form.set("emotion", JSON.stringify(vision.emotion));
-      form.set("voice", JSON.stringify(voice));
-      form.set("media", new File([blob], "answer.webm", { type: "video/webm" }));
-
-      const result = await submitAnswer({ data: form });
-
-      setAnswered((prev) => [...prev, question.id]);
-      setFeedback({
-        transcript: result.transcript,
-        evaluation: result.evaluation,
-        strengths: result.strengths,
-        weaknesses: result.weaknesses,
-      });
-      if (result.followUpQuestion) {
-        setQueue((prev) => [...prev, result.followUpQuestion as QuestionDto]);
-      }
-
-      if (result.interviewComplete) {
-        await finish({ data: { interviewId } });
-        setPhase("done");
-        toast.success("Interview complete — building your report");
-        navigate({ to: "/report/$interviewId", params: { interviewId } });
-        return;
-      }
-      setPhase("ready");
-    } catch (error) {
-      setPhase("ready");
-      toast.error(error instanceof Error ? error.message : "Could not analyse that answer");
-    }
-  }, [current, finish, interviewId, navigate, seconds, submitAnswer]);
-
-  const finishNow = useCallback(async () => {
-    setPhase("analysing");
-    try {
-      await finish({ data: { interviewId } });
-      faceRef.current?.close();
-      voiceRef.current?.stop();
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      setPhase("done");
-      toast.success("Interview closed — opening your report");
-      navigate({ to: "/report/$interviewId", params: { interviewId } });
-    } catch (error) {
-      setPhase("ready");
-      toast.error(error instanceof Error ? error.message : "Could not finish the interview");
-    }
-  }, [finish, interviewId, navigate]);
+  const endEarly = useCallback(() => {
+    void finalise();
+  }, [finalise]);
 
   const mmss = `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
-
+  const busy =
+    phase === "question_speaking" ||
+    phase === "uploading" ||
+    phase === "analysing" ||
+    phase === "next_question" ||
+    phase === "generating_report";
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1.1fr_1fr]">
@@ -233,24 +413,24 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background/80 p-6 text-center">
                 <Video className="size-8 text-primary" />
                 <p className="text-sm text-muted-foreground">
-                  {current
-                    ? "Your camera and microphone power the vision and voice analysis. Nothing is recorded until you press start."
-                    : "You have answered every question. Finish up to generate your report."}
+                  The interviewer will read each question aloud and recording starts on its own.
+                  Just answer, then pause when you are done.
                 </p>
-                {current ? (
-                  <Button onClick={arm}>Enable camera &amp; mic</Button>
-                ) : (
-                  <Button onClick={() => void finishNow()}>
-                    <CheckCircle2 className="mr-2 size-4" /> Finish &amp; view report
-                  </Button>
-                )}
+                <Button onClick={() => void arm()}>Start interview</Button>
               </div>
             )}
 
             {phase === "arming" && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background/80">
                 <Loader2 className="size-6 animate-spin text-primary" />
-                <p className="text-xs text-muted-foreground">Requesting camera and microphone…</p>
+                <p className="text-xs text-muted-foreground">{PHASE_LABEL.arming}</p>
+              </div>
+            )}
+
+            {phase === "question_speaking" && (
+              <div className="absolute inset-x-0 bottom-0 flex items-center gap-2 bg-background/80 p-3">
+                <Volume2 className="size-4 animate-pulse text-primary" />
+                <p className="text-xs text-muted-foreground">{PHASE_LABEL.question_speaking}</p>
               </div>
             )}
           </div>
@@ -262,37 +442,46 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {phase === "ready" && current && (
-              <Button onClick={startRecording}>
-                <Mic className="mr-2 size-4" />
-                {answered.length === 0 ? "Start answering" : "Record next answer"}
-              </Button>
-            )}
+            <span className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm">
+              {busy && <Loader2 className="size-4 animate-spin text-primary" />}
+              {phase === "recording" && (
+                <span className="size-2 animate-pulse rounded-full bg-destructive" />
+              )}
+              {PHASE_LABEL[phase]}
+            </span>
+
             {phase === "recording" && (
-              <Button variant="destructive" onClick={() => void stopRecording()}>
-                <Square className="mr-2 size-4" /> Stop &amp; analyse
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  if (stoppingRef.current) return;
+                  stoppingRef.current = true;
+                  clearTick();
+                  if (recorderRef.current && recorderRef.current.state !== "inactive") {
+                    recorderRef.current.stop();
+                  }
+                }}
+              >
+                <Square className="mr-2 size-4" /> I&apos;m done answering
               </Button>
             )}
-            {phase === "analysing" && (
-              <Button disabled>
-                <Loader2 className="mr-2 size-4 animate-spin" /> Analysing your answer…
+
+            {phase === "error" && (
+              <Button onClick={retry}>Try again</Button>
+            )}
+
+            {(phase === "recording" || phase === "error" || phase === "next_question") && (
+              <Button variant="outline" onClick={endEarly}>
+                <CheckCircle2 className="mr-2 size-4" /> End &amp; view report
               </Button>
             )}
-            {phase === "recording" && (
-              <Button variant="outline" disabled>
-                Recording — stop to submit
-              </Button>
-            )}
-            {phase === "ready" && (
-              <Button variant="outline" onClick={() => void finishNow()}>
-                <CheckCircle2 className="mr-2 size-4" />
-                {current ? "End early & view report" : "Finish & view report"}
-              </Button>
-            )}
+
             <span className="text-xs text-muted-foreground">
               {answered.length} of {queue.length} answered
             </span>
           </div>
+
+          {errorMessage && <p className="text-sm text-destructive">{errorMessage}</p>}
 
           <Progress value={progress} />
         </CardContent>
