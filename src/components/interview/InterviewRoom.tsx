@@ -517,9 +517,18 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
             <span className="text-xs text-muted-foreground">
               {answered.length} of {queue.length} answered
             </span>
+
+            {pendingCount > 0 && (
+              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Loader2 className="size-3 animate-spin text-primary" />
+                Analysing {pendingCount} answer{pendingCount > 1 ? "s" : ""} in the background
+              </span>
+            )}
           </div>
 
           {errorMessage && <p className="text-sm text-destructive">{errorMessage}</p>}
+          {analysisWarning && <p className="text-xs text-muted-foreground">{analysisWarning}</p>}
+
 
           <Progress value={progress} />
         </CardContent>
