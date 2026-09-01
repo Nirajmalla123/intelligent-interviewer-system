@@ -17,8 +17,6 @@ type Phase =
   | "arming"
   | "question_speaking"
   | "recording"
-  | "uploading"
-  | "analysing"
   | "next_question"
   | "generating_report"
   | "completed"
@@ -29,18 +27,18 @@ const PHASE_LABEL: Record<Phase, string> = {
   arming: "Enabling camera and microphone…",
   question_speaking: "AI is asking a question…",
   recording: "Recording your answer — just speak naturally",
-  uploading: "Uploading your answer…",
-  analysing: "Analysing your answer…",
   next_question: "Preparing the next question…",
-  generating_report: "Generating your final report…",
+  generating_report: "Building your detailed final report…",
   completed: "Interview completed",
   error: "Something went wrong",
 };
 
-const MIN_ANSWER_SECONDS = 6;
+const MIN_ANSWER_SECONDS = 3;
 const MAX_ANSWER_SECONDS = 150;
 const SILENCE_LEVEL = 0.035;
-const SILENCE_TO_STOP_MS = 3500;
+const SILENCE_TO_STOP_MS = 2500;
+const TICK_MS = 250;
+
 
 interface Props {
   interviewId: string;
