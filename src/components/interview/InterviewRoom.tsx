@@ -17,8 +17,6 @@ type Phase =
   | "arming"
   | "question_speaking"
   | "recording"
-  | "uploading"
-  | "analysing"
   | "next_question"
   | "generating_report"
   | "completed"
@@ -29,18 +27,18 @@ const PHASE_LABEL: Record<Phase, string> = {
   arming: "Enabling camera and microphone…",
   question_speaking: "AI is asking a question…",
   recording: "Recording your answer — just speak naturally",
-  uploading: "Uploading your answer…",
-  analysing: "Analysing your answer…",
   next_question: "Preparing the next question…",
-  generating_report: "Generating your final report…",
+  generating_report: "Building your detailed final report…",
   completed: "Interview completed",
   error: "Something went wrong",
 };
 
-const MIN_ANSWER_SECONDS = 6;
+const MIN_ANSWER_SECONDS = 3;
 const MAX_ANSWER_SECONDS = 150;
 const SILENCE_LEVEL = 0.035;
-const SILENCE_TO_STOP_MS = 3500;
+const SILENCE_TO_STOP_MS = 2500;
+const TICK_MS = 250;
+
 
 interface Props {
   interviewId: string;
@@ -87,9 +85,14 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
   const armedRef = useRef(false);
   const runningQuestionRef = useRef<string | null>(null);
   const stoppingRef = useRef(false);
+  const speakingRef = useRef(false);
   const finishingRef = useRef(false);
   const abandonedRef = useRef(false);
   const secondsRef = useRef(0);
+  const submittedRef = useRef<Set<string>>(new Set());
+  const pendingRef = useRef<Promise<void>[]>([]);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [analysisWarning, setAnalysisWarning] = useState<string | null>(null);
 
   const current = queue.find((q) => !answered.includes(q.id)) ?? null;
   const progress = queue.length ? (answered.length / queue.length) * 100 : 0;
@@ -111,6 +114,7 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
       URL.revokeObjectURL(audioUrlRef.current);
       audioUrlRef.current = null;
     }
+    speakingRef.current = false;
   }, []);
 
   const teardown = useCallback(() => {
@@ -131,68 +135,108 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
 
   useEffect(() => teardown, [teardown]);
 
-  /** Speaks one question and resolves when playback has finished. */
+  /** Speaks one question and resolves when playback has finished. Never overlaps. */
   const speak = useCallback(
     async (text: string) => {
+      if (speakingRef.current) return;
+      speakingRef.current = true;
       stopSpeech();
-      const response = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
-      if (!response.ok) {
-        throw new Error(
-          (await response.text().catch(() => "")) || "The interviewer voice is unavailable",
-        );
+      speakingRef.current = true;
+      try {
+        const response = await fetch("/api/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+        });
+        if (!response.ok) {
+          throw new Error(
+            (await response.text().catch(() => "")) || "The interviewer voice is unavailable",
+          );
+        }
+        const blob = await response.blob();
+        if (abandonedRef.current) return;
+        const url = URL.createObjectURL(blob);
+        audioUrlRef.current = url;
+        const audio = audioRef.current ?? new Audio();
+        audioRef.current = audio;
+        audio.src = url;
+        await new Promise<void>((resolve, reject) => {
+          audio.onended = () => resolve();
+          audio.onerror = () => reject(new Error("Could not play the question audio"));
+          audio.play().catch(reject);
+        });
+      } finally {
+        speakingRef.current = false;
       }
-      const blob = await response.blob();
-      if (abandonedRef.current) return;
-      const url = URL.createObjectURL(blob);
-      audioUrlRef.current = url;
-      const audio = audioRef.current ?? new Audio();
-      audioRef.current = audio;
-      audio.src = url;
-      await new Promise<void>((resolve, reject) => {
-        audio.onended = () => resolve();
-        audio.onerror = () => reject(new Error("Could not play the question audio"));
-        audio.play().catch(reject);
-      });
     },
     [stopSpeech],
   );
 
-  const uploadAndAnalyse = useCallback(
-    async (question: QuestionDto, blob: Blob, durationSeconds: number) => {
-      faceRef.current?.stop();
-      voiceRef.current?.stop();
-      const vision = faceRef.current?.results() ?? null;
-      const voice = voiceRef.current?.results() ?? null;
-      if (!vision || !voice) throw new Error("Analysis modules did not initialise");
+  /**
+   * Uploads and analyses one answer *in the background* so the camera, mic and
+   * the next question are never blocked. Metrics are snapshotted by the caller.
+   */
+  const analyseInBackground = useCallback(
+    (
+      question: QuestionDto,
+      blob: Blob,
+      durationSeconds: number,
+      face: unknown,
+      emotionMetrics: unknown,
+      voice: unknown,
+    ) => {
+      if (submittedRef.current.has(question.id)) return;
+      submittedRef.current.add(question.id);
+      setPendingCount((n) => n + 1);
 
-      setPhase("uploading");
-      const { data: auth } = await supabase.auth.getUser();
-      let videoPath: string | null = null;
-      if (auth.user) {
-        const path = `${auth.user.id}/${interviewId}/${question.id}.webm`;
-        const { error } = await supabase.storage
-          .from("interview-videos")
-          .upload(path, blob, { contentType: "video/webm", upsert: true });
-        if (!error) videoPath = path;
-      }
+      const task = (async () => {
+        try {
+          const { data: auth } = await supabase.auth.getUser();
+          let videoPath: string | null = null;
+          if (auth.user) {
+            const path = `${auth.user.id}/${interviewId}/${question.id}.webm`;
+            const { error } = await supabase.storage
+              .from("interview-videos")
+              .upload(path, blob, { contentType: "video/webm", upsert: true });
+            if (!error) videoPath = path;
+          }
 
-      const form = new FormData();
-      form.set("interviewId", interviewId);
-      form.set("questionId", question.id);
-      form.set("durationSeconds", String(durationSeconds));
-      if (videoPath) form.set("videoPath", videoPath);
-      form.set("face", JSON.stringify(vision.face));
-      form.set("emotion", JSON.stringify(vision.emotion));
-      form.set("voice", JSON.stringify(voice));
-      form.set("media", new File([blob], "answer.webm", { type: "video/webm" }));
+          const form = new FormData();
+          form.set("interviewId", interviewId);
+          form.set("questionId", question.id);
+          form.set("durationSeconds", String(durationSeconds));
+          if (videoPath) form.set("videoPath", videoPath);
+          form.set("face", JSON.stringify(face));
+          form.set("emotion", JSON.stringify(emotionMetrics));
+          form.set("voice", JSON.stringify(voice));
+          form.set("media", new File([blob], "answer.webm", { type: "video/webm" }));
 
-      // Backend does speech-to-text, multimodal evaluation and scoring.
-      setPhase("analysing");
-      return submitAnswer({ data: form });
+          const result = await submitAnswer({ data: form });
+          if (abandonedRef.current) return;
+          setFeedback({
+            transcript: result.transcript,
+            evaluation: result.evaluation,
+            strengths: result.strengths,
+            weaknesses: result.weaknesses,
+          });
+          if (result.followUpQuestion) {
+            const followUp = result.followUpQuestion as QuestionDto;
+            setQueue((prev) =>
+              prev.some((q) => q.id === followUp.id) ? prev : [...prev, followUp],
+            );
+          }
+        } catch (error) {
+          setAnalysisWarning(
+            error instanceof Error
+              ? `One answer could not be analysed: ${error.message}`
+              : "One answer could not be analysed",
+          );
+        } finally {
+          setPendingCount((n) => Math.max(0, n - 1));
+        }
+      })();
+
+      pendingRef.current.push(task);
     },
     [interviewId, submitAnswer],
   );
@@ -202,6 +246,9 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
     finishingRef.current = true;
     setPhase("generating_report");
     try {
+      // Detailed/final analysis only after every background answer has landed.
+      await Promise.allSettled(pendingRef.current);
+      pendingRef.current = [];
       await finish({ data: { interviewId } });
       teardown();
       setPhase("completed");
@@ -217,15 +264,14 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
   }, [finish, interviewId, navigate, teardown]);
 
   /**
-   * Runs one full question cycle: speak → record → auto-stop → upload →
-   * backend analysis → next question (or final report).
+   * One question cycle: speak → auto-record → auto-stop on 2.5s of silence →
+   * hand the answer to background analysis → straight on to the next question.
    */
   const runQuestion = useCallback(
     async (question: QuestionDto) => {
       const stream = streamRef.current;
       if (!stream || !videoRef.current) return;
 
-      setFeedback(null);
       setPhase("question_speaking");
       try {
         await speak(question.text);
@@ -266,16 +312,18 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
       const blob = await new Promise<Blob>((resolve) => {
         recorder.onstop = () => resolve(new Blob(chunksRef.current, { type: "video/webm" }));
         let silentMs = 0;
+        let elapsedMs = 0;
         clearTick();
         tickRef.current = setInterval(() => {
-          secondsRef.current += 1;
+          elapsedMs += TICK_MS;
+          secondsRef.current = Math.floor(elapsedMs / 1000);
           const live = voiceRef.current?.liveLevel() ?? 0;
           setSeconds(secondsRef.current);
           setLevel(live);
           setEyeContact(faceRef.current?.liveEyeContact() ?? 0);
           setEmotion(faceRef.current?.liveDominantEmotion() ?? "neutral");
 
-          silentMs = live < SILENCE_LEVEL ? silentMs + 1000 : 0;
+          silentMs = live < SILENCE_LEVEL ? silentMs + TICK_MS : 0;
           const enoughSilence =
             secondsRef.current >= MIN_ANSWER_SECONDS && silentMs >= SILENCE_TO_STOP_MS;
           if (
@@ -286,38 +334,31 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
             clearTick();
             if (recorder.state !== "inactive") recorder.stop();
           }
-        }, 1000);
+        }, TICK_MS);
       });
       clearTick();
       if (abandonedRef.current) return;
 
-      try {
-        const result = await uploadAndAnalyse(question, blob, secondsRef.current);
-        if (abandonedRef.current) return;
-        setAnswered((prev) => (prev.includes(question.id) ? prev : [...prev, question.id]));
-        setFeedback({
-          transcript: result.transcript,
-          evaluation: result.evaluation,
-          strengths: result.strengths,
-          weaknesses: result.weaknesses,
-        });
-        if (result.followUpQuestion) {
-          const followUp = result.followUpQuestion as QuestionDto;
-          setQueue((prev) => (prev.some((q) => q.id === followUp.id) ? prev : [...prev, followUp]));
-        }
-        if (result.interviewComplete) {
-          await finalise();
-          return;
-        }
-        setPhase("next_question");
-      } catch (error) {
-        setErrorMessage(
-          error instanceof Error ? error.message : "Could not analyse that answer",
+      // Snapshot per-answer metrics, then keep the camera/mic running.
+      faceRef.current?.stop();
+      voiceRef.current?.stop();
+      const vision = faceRef.current?.results() ?? null;
+      const voice = voiceRef.current?.results() ?? null;
+
+      setAnswered((prev) => (prev.includes(question.id) ? prev : [...prev, question.id]));
+      if (vision && voice) {
+        analyseInBackground(
+          question,
+          blob,
+          secondsRef.current,
+          vision.face,
+          vision.emotion,
+          voice,
         );
-        setPhase("error");
       }
+      setPhase("next_question");
     },
-    [finalise, speak, uploadAndAnalyse],
+    [analyseInBackground, speak],
   );
 
   const arm = useCallback(async () => {
@@ -384,11 +425,8 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
 
   const mmss = `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
   const busy =
-    phase === "question_speaking" ||
-    phase === "uploading" ||
-    phase === "analysing" ||
-    phase === "next_question" ||
-    phase === "generating_report";
+    phase === "question_speaking" || phase === "next_question" || phase === "generating_report";
+
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1.1fr_1fr]">
@@ -479,9 +517,18 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
             <span className="text-xs text-muted-foreground">
               {answered.length} of {queue.length} answered
             </span>
+
+            {pendingCount > 0 && (
+              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Loader2 className="size-3 animate-spin text-primary" />
+                Analysing {pendingCount} answer{pendingCount > 1 ? "s" : ""} in the background
+              </span>
+            )}
           </div>
 
           {errorMessage && <p className="text-sm text-destructive">{errorMessage}</p>}
+          {analysisWarning && <p className="text-xs text-muted-foreground">{analysisWarning}</p>}
+
 
           <Progress value={progress} />
         </CardContent>
