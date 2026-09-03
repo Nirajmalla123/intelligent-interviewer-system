@@ -189,6 +189,8 @@ export const getMyAccount = createServerFn({ method: "POST" })
       roles,
       isAdmin: roles.includes("admin"),
       resumeText: resume?.extracted_text ?? null,
+      resumeFileName: resume?.file_name ?? null,
+      avatarUrl: profile?.avatar_url ?? null,
     };
   });
 
@@ -200,6 +202,9 @@ const profileSchema = z.object({
   yearsExperience: z.number().min(0).max(60),
   location: z.string().max(120).nullable(),
   resumeText: z.string().max(20000).nullable(),
+  resumeFileName: z.string().max(200).nullable().optional(),
+  resumePath: z.string().max(300).nullable().optional(),
+  avatarUrl: z.string().max(500).nullable().optional(),
 });
 
 export const saveMyAccount = createServerFn({ method: "POST" })
@@ -219,6 +224,7 @@ export const saveMyAccount = createServerFn({ method: "POST" })
       targetRole: data.targetRole,
       yearsExperience: data.yearsExperience,
       location: data.location,
+      ...(data.avatarUrl === undefined ? {} : { avatarUrl: data.avatarUrl }),
     });
     if (data.resumeText !== null) {
       const resumes = new ResumeRepository(db);
@@ -226,14 +232,27 @@ export const saveMyAccount = createServerFn({ method: "POST" })
       if (data.resumeText.trim().length > 0) {
         await resumes.create({
           userId: context.userId,
-          filePath: `${context.userId}/pasted.txt`,
-          fileName: "pasted-resume.txt",
+          filePath: data.resumePath ?? `${context.userId}/pasted.txt`,
+          fileName: data.resumeFileName ?? "pasted-resume.txt",
           extractedText: data.resumeText.trim(),
         });
       }
     }
 
     return { ok: true };
+  });
+
+export const getAdminOverview = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { data: isAdmin } = await context.supabase.rpc("has_role", {
+      _user_id: context.userId,
+      _role: "admin",
+    });
+    if (!isAdmin) throw new Error("Forbidden: admin role required");
+    const { makeReportService } = await import("./services/factory.server");
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    return makeReportService(supabaseAdmin as unknown as Db).adminOverview();
   });
 
 export const listAllInterviews = createServerFn({ method: "POST" })
