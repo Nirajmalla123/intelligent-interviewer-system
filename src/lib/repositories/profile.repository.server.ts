@@ -22,6 +22,16 @@ export class ProfileRepository {
     return data ?? [];
   }
 
+  async listAll(limit = 500): Promise<ProfileRow[]> {
+    const { data, error } = await this.db
+      .from("profiles")
+      .select()
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    if (error) throw new RepositoryError(`List profiles: ${error.message}`);
+    return data ?? [];
+  }
+
   async upsert(
     userId: string,
     input: {
@@ -32,6 +42,7 @@ export class ProfileRepository {
       targetRole: string | null;
       yearsExperience: number;
       location: string | null;
+      avatarUrl?: string | null;
     },
   ): Promise<ProfileRow> {
     const { data, error } = await this.db
