@@ -16,7 +16,29 @@ import {
 import { ProfileRepository } from "@/lib/repositories/profile.repository.server";
 import { InterviewService } from "./interview.service.server";
 
+export interface AdminCandidateSummary {
+  userId: string;
+  fullName: string;
+  email: string;
+  headline: string | null;
+  targetRole: string | null;
+  location: string | null;
+  avatarUrl: string | null;
+  interviewCount: number;
+  completedCount: number;
+  averageScore: number | null;
+  lastInterviewAt: string | null;
+}
+
+export interface AdminOverview {
+  interviews: AdminInterviewSummary[];
+  candidates: AdminCandidateSummary[];
+  daily: { date: string; count: number }[];
+  totals: { candidates: number; interviews: number; completed: number; averageScore: number | null };
+}
+
 export interface AdminInterviewSummary {
+  candidateId: string;
   interviewId: string;
   candidateName: string;
   candidateEmail: string;
@@ -223,6 +245,7 @@ export class ReportService {
       const profile = profileById.get(i.candidate_id);
       return {
         interviewId: i.id,
+        candidateId: i.candidate_id,
         candidateName: profile?.full_name ?? "Candidate",
         candidateEmail: profile?.email ?? "",
         jobRole: i.job_role,
@@ -234,5 +257,87 @@ export class ReportService {
         recommendation: score ? recommendationFor(score.overall_score) : null,
       };
     });
+  }
+
+  /** Aggregated recruiter dashboard: candidates, per-day volume and totals. */
+  async adminOverview(days = 14): Promise<AdminOverview> {
+    const [interviews, profiles] = await Promise.all([
+      this.interviews.listAll(500),
+      this.profiles.listAll(500),
+    ]);
+    const scores = await this.scoreRepo.findByInterviews(interviews.map((i) => i.id));
+    const scoreByInterview = new Map(scores.map((s) => [s.interview_id, s]));
+    const profileById = new Map(profiles.map((p) => [p.id, p]));
+
+    const summaries: AdminInterviewSummary[] = interviews.map((i) => {
+      const score = scoreByInterview.get(i.id);
+      const profile = profileById.get(i.candidate_id);
+      return {
+        interviewId: i.id,
+        candidateId: i.candidate_id,
+        candidateName: profile?.full_name || profile?.email || "Candidate",
+        candidateEmail: profile?.email ?? "",
+        jobRole: i.job_role,
+        seniority: i.seniority,
+        status: i.status,
+        startedAt: i.created_at,
+        completedAt: i.completed_at,
+        overallScore: score?.overall_score ?? null,
+        recommendation: score ? recommendationFor(score.overall_score) : null,
+      };
+    });
+
+    const candidates: AdminCandidateSummary[] = profiles.map((p) => {
+      const mine = summaries.filter((s) => s.candidateId === p.id);
+      const scored = mine.map((s) => s.overallScore).filter((n): n is number => n !== null);
+      return {
+        userId: p.id,
+        fullName: p.full_name || p.email || "Candidate",
+        email: p.email ?? "",
+        headline: p.headline,
+        targetRole: p.target_role,
+        location: p.location,
+        avatarUrl: p.avatar_url,
+        interviewCount: mine.length,
+        completedCount: mine.filter((s) => s.status === "completed").length,
+        averageScore:
+          scored.length > 0
+            ? Math.round(scored.reduce((a, b) => a + Number(b), 0) / scored.length)
+            : null,
+        lastInterviewAt: mine[0]?.startedAt ?? null,
+      };
+    });
+
+    const daily: { date: string; count: number }[] = [];
+    const today = new Date();
+    for (let offset = days - 1; offset >= 0; offset -= 1) {
+      const d = new Date(today);
+      d.setUTCDate(d.getUTCDate() - offset);
+      const key = d.toISOString().slice(0, 10);
+      daily.push({
+        date: key,
+        count: summaries.filter((s) => s.startedAt.slice(0, 10) === key).length,
+      });
+    }
+
+    const allScored = summaries
+      .map((s) => s.overallScore)
+      .filter((n): n is number => n !== null)
+      .map(Number);
+
+    return {
+      interviews: summaries,
+      candidates,
+      daily,
+      totals: {
+        candidates: candidates.length,
+        interviews: summaries.length,
+        completed: summaries.filter((s) => s.status === "completed").length,
+        averageScore:
+          allScored.length > 0
+            ? Math.round(allScored.reduce((a, b) => a + b, 0) / allScored.length)
+            : null,
+      },
+    };
   }
 }
