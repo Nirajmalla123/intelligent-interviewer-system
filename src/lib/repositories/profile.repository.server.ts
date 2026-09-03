@@ -57,6 +57,7 @@ export class ProfileRepository {
           target_role: input.targetRole,
           years_experience: input.yearsExperience,
           location: input.location,
+          ...(input.avatarUrl === undefined ? {} : { avatar_url: input.avatarUrl }),
         },
         { onConflict: "id" },
       )
