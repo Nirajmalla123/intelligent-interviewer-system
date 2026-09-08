@@ -811,15 +811,6 @@ Every feature must include models, schemas, repositories, services, API routes, 
 
 The final system must support the complete interview lifecycle: authentication → interview → AI analysis → follow-up generation → scoring → reporting.
 
-This project was built with [Lovable](https://lovable.dev).
-
-## Build with Lovable
-
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/26037bda-0ff9-4be4-be25-07214bf88ffe).
-
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
 
 ## Development
 
