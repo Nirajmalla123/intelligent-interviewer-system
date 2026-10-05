@@ -221,7 +221,6 @@ function ProfilePage() {
             </Row>
             <Row label="Headline">
               <Input
-                placeholder="Frontend engineer focused on design systems"
                 value={form.headline}
                 onChange={(e) => setForm({ ...form, headline: e.target.value })}
               />
@@ -298,7 +297,6 @@ function ProfilePage() {
             </div>
             <Textarea
               rows={12}
-              placeholder="Extracted resume text appears here — the interviewer uses it to ground questions in your real experience."
               value={form.resumeText}
               onChange={(e) => setForm({ ...form, resumeText: e.target.value })}
             />
