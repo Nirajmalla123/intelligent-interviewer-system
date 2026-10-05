@@ -42,6 +42,8 @@ export const Route = createFileRoute("/_authenticated/admin")({
         property: "og:description",
         content: "Compare candidate interview scores and recommendations in one place.",
       },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
     ],
   }),
   component: AdminPage,

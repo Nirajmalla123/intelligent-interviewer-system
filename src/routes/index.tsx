@@ -19,6 +19,8 @@ export const Route = createFileRoute("/")({
         content:
           "Role-based AI video interviews scored across language, vision and voice signals.",
       },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
     ],
   }),
   component: Landing,
