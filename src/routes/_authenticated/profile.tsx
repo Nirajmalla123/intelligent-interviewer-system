@@ -29,6 +29,8 @@ export const Route = createFileRoute("/_authenticated/profile")({
         property: "og:description",
         content: "Update your experience and resume to tailor AI interview questions.",
       },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
     ],
   }),
   component: ProfilePage,

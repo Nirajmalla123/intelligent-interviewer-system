@@ -23,6 +23,8 @@ export const Route = createFileRoute("/auth")({
         property: "og:description",
         content: "Access your AI video interview assessments and scored reports.",
       },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
     ],
   }),
   component: AuthPage,

@@ -39,6 +39,8 @@ export const Route = createFileRoute("/_authenticated/report/$interviewId")({
         property: "og:description",
         content: "Your multimodal AI interview scorecard with per-answer breakdowns.",
       },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
     ],
   }),
   component: ReportPage,

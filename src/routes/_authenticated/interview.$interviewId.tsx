@@ -20,6 +20,8 @@ export const Route = createFileRoute("/_authenticated/interview/$interviewId")({
         property: "og:description",
         content: "Answer AI-generated questions on camera with live multimodal analysis.",
       },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
     ],
   }),
   component: InterviewPage,
