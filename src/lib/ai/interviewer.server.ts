@@ -112,6 +112,14 @@ export interface SummaryResult {
   recommendationNote: string;
 }
 
+const DIFFICULTY_GUIDE = {
+  junior:
+    "Difficulty: VERY VERY EASY beginner level — basic definitions like 'What is HTML?' or 'What is a variable?'.",
+  mid: "Difficulty: easy — simple basics and everyday practical usage, no deep internals.",
+  senior: "Difficulty: easy to moderate — simple practical experience questions, nothing tricky.",
+  lead: "Difficulty: easy to moderate — simple questions about teamwork, decisions and basic architecture.",
+} as const;
+
 const clampScore = (value: unknown): number => {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return 0;
@@ -142,10 +150,12 @@ export class InterviewerAi {
         {
           role: "system",
           content:
-            "You are a senior technical interviewer. Design a focused spoken interview. " +
-            "Questions must be answerable out loud in 60-120 seconds, be specific to the role " +
-            "and seniority, and avoid asking the candidate to write or read code. " +
-            "Question 1 is always a short introduction question.",
+            "You are a friendly technical interviewer. Design a spoken interview with SIMPLE, EASY questions. " +
+            "Every question must be one short sentence (under 20 words), use plain everyday language, " +
+            "ask about a single basic concept, and be answerable out loud in 30-60 seconds. " +
+            "Never ask multi-part, tricky, or deep system-design questions. Do not ask the candidate to write or read code. " +
+            "Question 1 is always a short introduction question. " +
+            DIFFICULTY_GUIDE[request.seniority as keyof typeof DIFFICULTY_GUIDE],
         },
         {
           role: "user",
