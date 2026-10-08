@@ -10,11 +10,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { JOB_ROLES, SENIORITY_LEVELS, type Seniority } from "@/lib/domain/types";
+import { verifyResumeName } from "@/lib/domain/resume-verification";
 import { getMyAccount, listMyInterviews, startInterview } from "@/lib/interview.functions";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { Loader2, Play, RefreshCw } from "lucide-react";
+import { Loader2, Play, RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -50,9 +51,14 @@ function DashboardPage() {
 
   const [jobRole, setJobRole] = useState<string>(JOB_ROLES[0]);
   const [seniority, setSeniority] = useState<Seniority>("mid");
+  const [questionCount, setQuestionCount] = useState<12 | 15 | 20>(12);
+
+  const verification = account.data
+    ? verifyResumeName(account.data.profile?.fullName, account.data.resumeText)
+    : null;
 
   const start = useMutation({
-    mutationFn: () => begin({ data: { jobRole, seniority } }),
+    mutationFn: () => begin({ data: { jobRole, seniority, questionCount } }),
     onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: ["my-interviews"] });
       navigate({ to: "/interview/$interviewId", params: { interviewId: result.interviewId } });
@@ -106,10 +112,55 @@ function DashboardPage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-1.5">
+              <p className="text-sm text-muted-foreground">Number of questions</p>
+              <Select
+                value={String(questionCount)}
+                onValueChange={(v) => setQuestionCount(Number(v) as 12 | 15 | 20)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[12, 15, 20].map((n) => (
+                    <SelectItem key={n} value={String(n)}>
+                      {n} questions
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {verification && (
+              <div
+                className={`flex items-start gap-2 rounded-md border p-3 text-sm ${
+                  verification.verified
+                    ? "border-primary/40 text-foreground"
+                    : "border-destructive/50 text-destructive"
+                }`}
+              >
+                {verification.verified ? (
+                  <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />
+                ) : (
+                  <ShieldAlert className="mt-0.5 size-4 shrink-0" />
+                )}
+                <div>
+                  {verification.verified ? (
+                    <p>Resume verified — the name matches your profile.</p>
+                  ) : (
+                    <p>
+                      {verification.reason}{" "}
+                      <Link to="/profile" className="underline">
+                        Go to Profile
+                      </Link>
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
             <Button
               className="w-full"
               onClick={() => start.mutate()}
-              disabled={start.isPending || account.isLoading}
+              disabled={start.isPending || account.isLoading || !verification?.verified}
             >
               {start.isPending ? (
                 <Loader2 className="mr-2 size-4 animate-spin" />
@@ -118,15 +169,6 @@ function DashboardPage() {
               )}
               {start.isPending ? "Generating questions…" : "Generate questions & begin"}
             </Button>
-            {!account.data?.resumeText && (
-              <p className="text-xs text-muted-foreground">
-                Tip: add your resume in{" "}
-                <Link to="/profile" className="text-primary underline">
-                  Profile
-                </Link>{" "}
-                so questions are tailored to your experience.
-              </p>
-            )}
           </CardContent>
         </Card>
 
