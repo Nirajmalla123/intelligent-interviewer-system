@@ -7,6 +7,7 @@ import { z } from "zod";
 const startSchema = z.object({
   jobRole: z.string().min(2).max(120),
   seniority: z.enum(["junior", "mid", "senior", "lead"]),
+  questionCount: z.union([z.literal(12), z.literal(15), z.literal(20)]).default(12),
 });
 
 const idSchema = z.object({ interviewId: z.string().uuid() });
@@ -51,6 +52,7 @@ export const startInterview = createServerFn({ method: "POST" })
       candidateId: context.userId,
       jobRole: data.jobRole,
       seniority: data.seniority,
+      questionCount: data.questionCount,
     });
   });
 

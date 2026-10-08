@@ -20,13 +20,15 @@ import {
   ProfileRepository,
   ResumeRepository,
 } from "@/lib/repositories/profile.repository.server";
+import { verifyResumeName } from "@/lib/domain/resume-verification";
 
-const QUESTIONS_PER_INTERVIEW = 5;
+const QUESTIONS_PER_INTERVIEW = 12;
 
 export interface StartInterviewInput {
   candidateId: string;
   jobRole: string;
   seniority: string;
+  questionCount?: number;
 }
 
 export interface StartInterviewResult {
@@ -106,10 +108,13 @@ export class InterviewService {
       this.resumes.latestFor(input.candidateId),
     ]);
 
+    const check = verifyResumeName(profile?.full_name, resume?.extracted_text);
+    if (!check.verified) throw new Error(`Resume verification failed: ${check.reason}`);
+
     const planned = await this.ai.generateQuestionPlan({
       jobRole: input.jobRole,
       seniority: input.seniority,
-      count: QUESTIONS_PER_INTERVIEW,
+      count: input.questionCount ?? QUESTIONS_PER_INTERVIEW,
       resumeText: resume?.extracted_text ?? null,
       candidateHeadline: profile?.headline ?? null,
       yearsExperience: profile?.years_experience ?? 0,
