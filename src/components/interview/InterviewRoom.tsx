@@ -4,10 +4,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/integrations/supabase/client";
 import type { QuestionDto } from "@/lib/domain/types";
-import { completeInterview, processAnswer } from "@/lib/interview.functions";
+import { completeInterview, processAnswer, terminateInterview } from "@/lib/interview.functions";
 import { useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { CheckCircle2, Loader2, Square, Video, Volume2 } from "lucide-react";
+import { CheckCircle2, Loader2, ShieldAlert, Square, Video, Volume2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -20,7 +20,8 @@ type Phase =
   | "next_question"
   | "generating_report"
   | "completed"
-  | "error";
+  | "error"
+  | "terminated";
 
 const PHASE_LABEL: Record<Phase, string> = {
   idle: "Ready when you are",
@@ -31,6 +32,7 @@ const PHASE_LABEL: Record<Phase, string> = {
   generating_report: "Building your detailed final report…",
   completed: "Interview completed",
   error: "Something went wrong",
+  terminated: "Interview terminated",
 };
 
 const MIN_ANSWER_SECONDS = 3;
@@ -38,6 +40,9 @@ const MAX_ANSWER_SECONDS = 150;
 const SILENCE_LEVEL = 0.035;
 const SILENCE_TO_STOP_MS = 2500;
 const TICK_MS = 250;
+/** Multiple faces must persist this long before the interview is terminated. */
+const MULTI_FACE_CONFIRM_MS = 2000;
+const TERMINATED_MESSAGE = "Multiple Faces Detected — Interview Terminated for Security Reasons.";
 
 
 interface Props {
@@ -58,6 +63,11 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
   const navigate = useNavigate();
   const submitAnswer = useServerFn(processAnswer);
   const finish = useServerFn(completeInterview);
+  const terminate = useServerFn(terminateInterview);
+  const [multiFaceWarning, setMultiFaceWarning] = useState(false);
+  const multiSinceRef = useRef<number | null>(null);
+  const clearFramesRef = useRef(0);
+  const terminatedRef = useRef(false);
 
   const [queue, setQueue] = useState<QuestionDto[]>(() =>
     [...questions].sort((a, b) => a.orderIndex - b.orderIndex),
@@ -384,6 +394,32 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
       const face = new FaceAnalyzer();
       await face.init();
       faceRef.current = face;
+      if (videoRef.current) {
+        const video = videoRef.current;
+        face.monitor(video, (count) => {
+          if (terminatedRef.current) return;
+          const now = performance.now();
+          if (count > 1) {
+            clearFramesRef.current = 0;
+            multiSinceRef.current ??= now;
+            setMultiFaceWarning(true);
+            if (now - multiSinceRef.current >= MULTI_FACE_CONFIRM_MS) {
+              terminatedRef.current = true;
+              finishingRef.current = true;
+              teardown();
+              setPhase("terminated");
+              void terminate({ data: { interviewId, reason: "multiple_faces" } }).catch(() => undefined);
+            }
+          } else {
+            // Require two clean frames in a row before dismissing a detection.
+            clearFramesRef.current += 1;
+            if (clearFramesRef.current >= 2) {
+              multiSinceRef.current = null;
+              setMultiFaceWarning(false);
+            }
+          }
+        });
+      }
       voiceRef.current = new VoiceAnalyzer();
       // Unlock audio playback within this user gesture.
       audioRef.current = new Audio();
@@ -397,7 +433,7 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
       );
       setPhase("error");
     }
-  }, []);
+  }, [interviewId, teardown, terminate]);
 
   // Single driver: whenever the next question is due, run exactly one cycle.
   useEffect(() => {
@@ -427,6 +463,10 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
   const busy =
     phase === "question_speaking" || phase === "next_question" || phase === "generating_report";
 
+
+  if (phase === "terminated") {
+    return <TerminatedNotice />;
+  }
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1.1fr_1fr]">
@@ -462,6 +502,13 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background/80">
                 <Loader2 className="size-6 animate-spin text-primary" />
                 <p className="text-xs text-muted-foreground">{PHASE_LABEL.arming}</p>
+              </div>
+            )}
+
+            {multiFaceWarning && (
+              <div className="absolute inset-x-0 top-0 flex items-center gap-2 bg-destructive p-2 text-destructive-foreground">
+                <ShieldAlert className="size-4" />
+                <p className="text-xs font-medium">Multiple faces detected — only you may be in view.</p>
               </div>
             )}
 
@@ -598,6 +645,20 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
         )}
       </div>
     </div>
+  );
+}
+
+export function TerminatedNotice() {
+  return (
+    <Card className="border-destructive bg-destructive/10">
+      <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
+        <ShieldAlert className="size-10 text-destructive" />
+        <p className="text-lg font-semibold text-destructive">{TERMINATED_MESSAGE}</p>
+        <p className="text-sm text-muted-foreground">
+          This interview has been closed and cannot be continued.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 
