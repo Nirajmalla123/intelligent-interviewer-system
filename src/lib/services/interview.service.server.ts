@@ -172,6 +172,9 @@ export class InterviewService {
       this.resumes.latestFor(input.candidateId),
     ]);
 
+    if (interview.status !== "in_progress") {
+      throw new Error("This interview has ended and no longer accepts answers.");
+    }
     const allQuestions = await this.questions.listByInterview(input.interviewId);
     const answeredCount = priorAnswers.length;
     const isLastQuestion = answeredCount + 1 >= allQuestions.length;
@@ -248,6 +251,8 @@ export class InterviewService {
   }
 
   async completeInterview(interviewId: string): Promise<void> {
+    const interview = await this.interviews.findById(interviewId);
+    if (interview.status === "abandoned") return;
     await this.recomputeScores(interviewId);
     await this.interviews.setStatus(interviewId, "completed");
   }
