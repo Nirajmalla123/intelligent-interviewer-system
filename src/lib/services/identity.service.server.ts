@@ -58,7 +58,8 @@ export async function verifyIdentity(userId: string, liveImageDataUrl: string): 
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
-      model: process.env["LLM_MODEL"] ?? "google/gemini-3.5-flash",
+      model: "openai/gpt-6-astra",
+      reasoning_effort: "low",
       messages: [
         {
           role: "system",
