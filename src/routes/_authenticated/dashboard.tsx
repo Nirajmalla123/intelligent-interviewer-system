@@ -161,7 +161,7 @@ function DashboardPage() {
               </div>
             )}
             {account.data && verification?.verified && (
-              <IdentityCheck hasPhoto={Boolean(account.data.profile?.avatarUrl)} onChange={onIdentity} />
+              <IdentityCheck hasPhoto={Boolean(account.data.avatarUrl)} onChange={onIdentity} />
             )}
             <Button
               className="w-full"
