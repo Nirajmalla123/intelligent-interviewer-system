@@ -1,4 +1,5 @@
 import { AppShell } from "@/components/layout/AppShell";
+import { IdentityCheck } from "@/components/identity/IdentityCheck";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,7 +17,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { Loader2, Play, RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -52,6 +53,8 @@ function DashboardPage() {
   const [jobRole, setJobRole] = useState<string>(JOB_ROLES[0]);
   const [seniority, setSeniority] = useState<Seniority>("mid");
   const [questionCount, setQuestionCount] = useState<12 | 15 | 20>(12);
+  const [identityVerified, setIdentityVerified] = useState(false);
+  const onIdentity = useCallback((v: boolean) => setIdentityVerified(v), []);
 
   const verification = account.data
     ? verifyResumeName(account.data.profile?.fullName, account.data.resumeText)
@@ -157,10 +160,15 @@ function DashboardPage() {
                 </div>
               </div>
             )}
+            {account.data && verification?.verified && (
+              <IdentityCheck hasPhoto={Boolean(account.data.profile?.avatarUrl)} onChange={onIdentity} />
+            )}
             <Button
               className="w-full"
               onClick={() => start.mutate()}
-              disabled={start.isPending || account.isLoading || !verification?.verified}
+              disabled={
+                start.isPending || account.isLoading || !verification?.verified || !identityVerified
+              }
             >
               {start.isPending ? (
                 <Loader2 className="mr-2 size-4 animate-spin" />
