@@ -47,6 +47,10 @@ export const startInterview = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => startSchema.parse(input))
   .handler(async ({ data, context }) => {
+    const { hasRecentVerification } = await import("./services/identity.service.server");
+    if (!(await hasRecentVerification(context.userId))) {
+      throw new Error("Identity not verified. Complete the face verification before starting.");
+    }
     const { makeInterviewService } = await import("./services/factory.server");
     return makeInterviewService(context.supabase as unknown as Db).startInterview({
       candidateId: context.userId,
@@ -268,4 +272,43 @@ export const listAllInterviews = createServerFn({ method: "POST" })
     const { makeReportService } = await import("./services/factory.server");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     return makeReportService(supabaseAdmin as unknown as Db).listAllInterviews();
+  });
+
+const identitySchema = z.object({
+  image: z
+    .string()
+    .max(3_000_000)
+    .regex(/^data:image\/(jpeg|png|webp);base64,/),
+});
+
+/** Compares a live webcam capture with the registered profile photo. */
+export const verifyMyIdentity = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => identitySchema.parse(input))
+  .handler(async ({ data, context }) => {
+    const { verifyIdentity } = await import("./services/identity.service.server");
+    return verifyIdentity(context.userId, data.image);
+  });
+
+export const getMyIdentityStatus = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { hasRecentVerification } = await import("./services/identity.service.server");
+    return { verified: await hasRecentVerification(context.userId) };
+  });
+
+/** Ends an interview for a security violation; it can no longer be continued. */
+export const terminateInterview = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z.object({ interviewId: z.string().uuid(), reason: z.string().max(200) }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const { error } = await context.supabase
+      .from("interviews")
+      .update({ status: "abandoned" })
+      .eq("id", data.interviewId)
+      .eq("candidate_id", context.userId);
+    if (error) throw new Error(error.message);
+    return { ok: true };
   });

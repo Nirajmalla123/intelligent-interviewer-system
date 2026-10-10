@@ -1,4 +1,4 @@
-import { InterviewRoom } from "@/components/interview/InterviewRoom";
+import { InterviewRoom, TerminatedNotice } from "@/components/interview/InterviewRoom";
 import { AppShell } from "@/components/layout/AppShell";
 import { getInterviewSession } from "@/lib/interview.functions";
 import { useQuery } from "@tanstack/react-query";
@@ -47,7 +47,8 @@ function InterviewPage() {
           {session.error instanceof Error ? session.error.message : "Could not load this interview"}
         </p>
       )}
-      {session.data && (
+      {session.data?.status === "abandoned" && <TerminatedNotice />}
+      {session.data && session.data.status !== "abandoned" && (
         <InterviewRoom
           interviewId={interviewId}
           jobRole={session.data.jobRole}

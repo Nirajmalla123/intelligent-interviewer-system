@@ -162,6 +162,33 @@ export type Database = {
           },
         ]
       }
+      identity_verifications: {
+        Row: {
+          confidence: number
+          created_at: string
+          id: string
+          matched: boolean
+          reason: string | null
+          user_id: string
+        }
+        Insert: {
+          confidence?: number
+          created_at?: string
+          id?: string
+          matched: boolean
+          reason?: string | null
+          user_id: string
+        }
+        Update: {
+          confidence?: number
+          created_at?: string
+          id?: string
+          matched?: boolean
+          reason?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       interview_scores: {
         Row: {
           communication_score: number

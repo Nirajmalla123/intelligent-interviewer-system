@@ -39,6 +39,38 @@ export class FaceAnalyzer {
   private lastBlink = false;
   private blinks = 0;
   private startedAt = 0;
+  private faceCount = 0;
+  private monitorTimer: ReturnType<typeof setInterval> | null = null;
+  private lastTs = 0;
+
+  private detect(video: HTMLVideoElement) {
+    if (!this.landmarker || video.readyState < 2) return null;
+    const ts = Math.max(performance.now(), this.lastTs + 1);
+    this.lastTs = ts;
+    const result = this.landmarker.detectForVideo(video, ts);
+    this.faceCount = result.faceLandmarks?.length ?? 0;
+    return result;
+  }
+
+  /** Continuous face-count monitoring (~5 fps), independent of answer sampling. */
+  monitor(video: HTMLVideoElement, onCount: (count: number) => void) {
+    this.stopMonitor();
+    this.monitorTimer = setInterval(() => {
+      if (!this.timer) {
+        try {
+          this.detect(video);
+        } catch {
+          return;
+        }
+      }
+      onCount(this.faceCount);
+    }, 200);
+  }
+
+  stopMonitor() {
+    if (this.monitorTimer) clearInterval(this.monitorTimer);
+    this.monitorTimer = null;
+  }
 
   async init() {
     const { FaceLandmarker, FilesetResolver } = await import("@mediapipe/tasks-vision");
@@ -46,7 +78,9 @@ export class FaceAnalyzer {
     this.landmarker = await FaceLandmarker.createFromOptions(fileset, {
       baseOptions: { modelAssetPath: MODEL_URL, delegate: "GPU" },
       runningMode: "VIDEO",
-      numFaces: 1,
+      numFaces: 4,
+      minFaceDetectionConfidence: 0.6,
+      minFacePresenceConfidence: 0.6,
       outputFaceBlendshapes: true,
       outputFacialTransformationMatrixes: true,
     });
@@ -61,13 +95,13 @@ export class FaceAnalyzer {
   }
 
   private sample(video: HTMLVideoElement) {
-    if (!this.landmarker || video.readyState < 2) return;
-    let result: import("@mediapipe/tasks-vision").FaceLandmarkerResult;
+    let result: import("@mediapipe/tasks-vision").FaceLandmarkerResult | null;
     try {
-      result = this.landmarker.detectForVideo(video, performance.now());
+      result = this.detect(video);
     } catch {
       return;
     }
+    if (!result) return;
     const shapes = result.faceBlendshapes?.[0]?.categories;
     const matrix = result.facialTransformationMatrixes?.[0]?.data;
     if (!shapes || !matrix) {
@@ -115,6 +149,7 @@ export class FaceAnalyzer {
 
   close() {
     this.stop();
+    this.stopMonitor();
     this.landmarker?.close();
     this.landmarker = null;
   }
