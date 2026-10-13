@@ -1,12 +1,10 @@
 import { AppShell } from "@/components/layout/AppShell";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
-import { initialsOf, signedAvatarUrl } from "@/lib/avatar";
 import { getMyAccount, saveMyAccount } from "@/lib/interview.functions";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
@@ -56,8 +54,6 @@ function ProfilePage() {
     path: null,
   });
   const [avatarPath, setAvatarPath] = useState<string | null>(null);
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  const [avatarBusy, setAvatarBusy] = useState(false);
   const [resumeBusy, setResumeBusy] = useState(false);
 
   useEffect(() => {
@@ -75,16 +71,6 @@ function ProfilePage() {
     setResumeMeta({ fileName: data.resumeFileName ?? null, path: null });
     setAvatarPath(data.avatarUrl ?? null);
   }, [account.data]);
-
-  useEffect(() => {
-    let active = true;
-    void signedAvatarUrl(avatarPath).then((url) => {
-      if (active) setAvatarUrl(url);
-    });
-    return () => {
-      active = false;
-    };
-  }, [avatarPath]);
 
   const mutation = useMutation({
     mutationFn: (overrides?: { avatarUrl?: string | null }) =>
@@ -110,34 +96,6 @@ function ProfilePage() {
       toast.error(error instanceof Error ? error.message : "Could not save your profile"),
   });
 
-  async function handleAvatar(file: File) {
-    if (!file.type.startsWith("image/")) {
-      toast.error("Choose an image file (PNG or JPG)");
-      return;
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error("Profile photos must be smaller than 5 MB");
-      return;
-    }
-    setAvatarBusy(true);
-    try {
-      const { data: auth } = await supabase.auth.getUser();
-      const userId = auth.user?.id;
-      if (!userId) throw new Error("Your session expired — sign in again");
-      const extension = file.name.split(".").pop()?.toLowerCase() ?? "png";
-      const path = `${userId}/avatar-${Date.now()}.${extension}`;
-      const { error } = await supabase.storage
-        .from("avatars")
-        .upload(path, file, { upsert: true, contentType: file.type });
-      if (error) throw error;
-      setAvatarPath(path);
-      await mutation.mutateAsync({ avatarUrl: path });
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Photo upload failed");
-    } finally {
-      setAvatarBusy(false);
-    }
-  }
 
   async function handleResume(file: File) {
     const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
@@ -175,40 +133,6 @@ function ProfilePage() {
       isAdmin={account.data?.isAdmin ?? false}
     >
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Profile photo</CardTitle>
-          </CardHeader>
-          <CardContent className="flex items-center gap-5">
-            <Avatar className="size-20">
-              {avatarUrl && <AvatarImage src={avatarUrl} alt={form.fullName || "Profile photo"} />}
-              <AvatarFallback className="text-lg">
-                {initialsOf(form.fullName, account.data?.profile?.email)}
-              </AvatarFallback>
-            </Avatar>
-            <div className="space-y-2">
-              <Label htmlFor="avatar-file" className="text-sm">
-                PNG or JPG, up to 5 MB
-              </Label>
-              <Input
-                id="avatar-file"
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                disabled={avatarBusy}
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  e.target.value = "";
-                  if (file) void handleAvatar(file);
-                }}
-              />
-              {avatarBusy && (
-                <p className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Loader2 className="size-3 animate-spin" /> Uploading photo…
-                </p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
 
         <Card>
           <CardHeader>
