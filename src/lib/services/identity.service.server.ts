@@ -2,7 +2,9 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 /** A verification is valid for this long before the interview must start. */
 export const IDENTITY_VALID_MINUTES = 30;
-const MIN_CONFIDENCE = 0.75;
+const MIN_CONFIDENCE = 0.7;
+const BUCKET = "avatars";
+const referencePath = (userId: string) => `${userId}/face-reference.jpg`;
 
 export interface IdentityResult {
   verified: boolean;
@@ -10,14 +12,24 @@ export interface IdentityResult {
   reason: string;
 }
 
+interface VisionVerdict {
+  live_face_count: number;
+  reference_face_count: number;
+  same_person: boolean;
+  is_live_person: boolean;
+  confidence: number;
+  reason: string;
+}
+
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["live_face_count", "reference_face_count", "same_person", "confidence", "reason"],
+  required: ["live_face_count", "reference_face_count", "same_person", "is_live_person", "confidence", "reason"],
   properties: {
     live_face_count: { type: "integer" },
     reference_face_count: { type: "integer" },
     same_person: { type: "boolean" },
+    is_live_person: { type: "boolean" },
     confidence: { type: "number" },
     reason: { type: "string" },
   },
@@ -31,28 +43,27 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-/**
- * Compares a live webcam snapshot with the candidate's registered profile
- * photo using a vision model, and records the outcome server-side.
- */
-export async function verifyIdentity(userId: string, liveImageDataUrl: string): Promise<IdentityResult> {
-  const { data: profile } = await supabaseAdmin
-    .from("profiles")
-    .select("avatar_url")
-    .eq("id", userId)
-    .maybeSingle();
-  const avatarPath = (profile as { avatar_url?: string | null } | null)?.avatar_url;
-  if (!avatarPath) {
-    return { verified: false, confidence: 0, reason: "Upload a profile photo first, then verify." };
-  }
-  const { data: file, error } = await supabaseAdmin.storage.from("avatars").download(avatarPath);
-  if (error || !file) {
-    return { verified: false, confidence: 0, reason: "Your profile photo could not be loaded." };
-  }
-  const refUrl = `data:${file.type || "image/jpeg"};base64,${toBase64(new Uint8Array(await file.arrayBuffer()))}`;
+function dataUrlToBytes(dataUrl: string): Uint8Array {
+  const b64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
 
+async function askVision(liveImage: string, referenceImage: string | null): Promise<VisionVerdict> {
   const apiKey = process.env["LOVABLE_API_KEY"];
   if (!apiKey) throw new Error("Identity verification is not configured");
+
+  const content: unknown[] = [];
+  if (referenceImage) {
+    content.push({ type: "text", text: "Image 1: reference live capture taken at verification." });
+    content.push({ type: "image_url", image_url: { url: referenceImage } });
+    content.push({ type: "text", text: "Image 2: current live webcam capture." });
+  } else {
+    content.push({ type: "text", text: "Live webcam capture (no reference — set reference_face_count to 0 and same_person to true if exactly one real live face)." });
+  }
+  content.push({ type: "image_url", image_url: { url: liveImage } });
 
   const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
@@ -64,17 +75,9 @@ export async function verifyIdentity(userId: string, liveImageDataUrl: string): 
         {
           role: "system",
           content:
-            "You are a strict face-verification system for interview security. Image 1 is the registered profile photo, image 2 is a live webcam capture. Count clearly visible human faces in each image. Decide if both show the same real person, judging stable facial features (face shape, eyes, nose, mouth, ears, hairline) and ignoring lighting, angle, glasses, or expression. Photos of a screen or printed photo held to the camera are NOT a match. Be conservative: if unsure, same_person=false. confidence is 0..1.",
+            "You are a face-verification system for interview security. Count clearly visible human faces in the live capture (live_face_count) and in the reference (reference_face_count). is_live_person is false if the live face is a photo of a screen, printed photo, or mask. When a reference is given, decide if both show the same person using stable facial features (face shape, eyes, nose, mouth, hairline), ignoring lighting, angle, glasses, or expression. If unsure, same_person=false. confidence is 0..1.",
         },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: "Image 1: registered profile photo." },
-            { type: "image_url", image_url: { url: refUrl } },
-            { type: "text", text: "Image 2: live webcam capture." },
-            { type: "image_url", image_url: { url: liveImageDataUrl } },
-          ],
-        },
+        { role: "user", content },
       ],
       response_format: {
         type: "json_schema",
@@ -94,46 +97,69 @@ export async function verifyIdentity(userId: string, liveImageDataUrl: string): 
   }
   const payload = (await response.json()) as { choices?: { message?: { content?: string } }[] };
   const raw = payload.choices?.[0]?.message?.content ?? "";
-  let parsed: {
-    live_face_count: number;
-    reference_face_count: number;
-    same_person: boolean;
-    confidence: number;
-    reason: string;
-  };
   try {
-    parsed = JSON.parse(raw.trim().replace(/^```(?:json)?/i, "").replace(/```$/, ""));
+    return JSON.parse(raw.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "")) as VisionVerdict;
   } catch {
     throw new Error("Identity verification returned an unreadable result");
   }
+}
 
-  let result: IdentityResult;
-  if (parsed.live_face_count !== 1) {
-    result = {
-      verified: false,
-      confidence: 0,
-      reason:
-        parsed.live_face_count === 0
-          ? "No face was detected in the camera. Face the camera in good light."
-          : "More than one face is visible. Only you should be in the frame.",
-    };
-  } else if (parsed.reference_face_count < 1) {
-    result = { verified: false, confidence: 0, reason: "Your profile photo has no clear face. Upload a clear photo of yourself." };
-  } else {
-    const ok = parsed.same_person && parsed.confidence >= MIN_CONFIDENCE;
-    result = {
-      verified: ok,
-      confidence: parsed.confidence,
-      reason: ok ? "Identity verified." : "Your face does not match your profile photo.",
-    };
-  }
+function faceProblem(v: VisionVerdict): string | null {
+  if (v.live_face_count === 0) return "No face was detected in the camera. Face the camera in good light.";
+  if (v.live_face_count > 1) return "More than one face is visible. Only you should be in the frame.";
+  if (!v.is_live_person) return "Please present your real face to the camera, not a photo or screen.";
+  return null;
+}
 
+async function record(userId: string, result: IdentityResult, reason: string) {
   await supabaseAdmin.from("identity_verifications").insert({
     user_id: userId,
     matched: result.verified,
     confidence: result.confidence,
-    reason: parsed.reason.slice(0, 500),
+    reason: reason.slice(0, 500),
   });
+}
+
+/**
+ * Pre-interview check: confirms one real live face is on camera and stores
+ * that capture as the reference face for continuous checks during the interview.
+ */
+export async function enrollIdentity(userId: string, liveImage: string): Promise<IdentityResult> {
+  const verdict = await askVision(liveImage, null);
+  const problem = faceProblem(verdict);
+  const result: IdentityResult = problem
+    ? { verified: false, confidence: 0, reason: problem }
+    : { verified: true, confidence: verdict.confidence, reason: "Identity verified." };
+  if (result.verified) {
+    const { error } = await supabaseAdmin.storage
+      .from(BUCKET)
+      .upload(referencePath(userId), dataUrlToBytes(liveImage), { upsert: true, contentType: "image/jpeg" });
+    if (error) throw new Error("Could not save your face reference. Please retry.");
+  }
+  await record(userId, result, verdict.reason);
+  return result;
+}
+
+/** During the interview: compares the current webcam frame with the reference face. */
+export async function compareWithReference(userId: string, liveImage: string): Promise<IdentityResult> {
+  const { data: file, error } = await supabaseAdmin.storage.from(BUCKET).download(referencePath(userId));
+  if (error || !file) {
+    return { verified: false, confidence: 0, reason: "No face reference found. Please verify again." };
+  }
+  const refUrl = `data:image/jpeg;base64,${toBase64(new Uint8Array(await file.arrayBuffer()))}`;
+  const verdict = await askVision(liveImage, refUrl);
+  const problem = faceProblem(verdict);
+  let result: IdentityResult;
+  if (problem) result = { verified: false, confidence: 0, reason: problem };
+  else {
+    const ok = verdict.same_person && verdict.confidence >= MIN_CONFIDENCE;
+    result = {
+      verified: ok,
+      confidence: verdict.confidence,
+      reason: ok ? "Identity confirmed." : "The face on camera does not match the verified candidate.",
+    };
+  }
+  await record(userId, result, verdict.reason);
   return result;
 }
 

@@ -281,13 +281,22 @@ const identitySchema = z.object({
     .regex(/^data:image\/(jpeg|png|webp);base64,/),
 });
 
-/** Compares a live webcam capture with the registered profile photo. */
+/** Pre-interview live face capture; becomes the reference face. */
 export const verifyMyIdentity = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => identitySchema.parse(input))
   .handler(async ({ data, context }) => {
-    const { verifyIdentity } = await import("./services/identity.service.server");
-    return verifyIdentity(context.userId, data.image);
+    const { enrollIdentity } = await import("./services/identity.service.server");
+    return enrollIdentity(context.userId, data.image);
+  });
+
+/** Continuous in-interview check against the reference face. */
+export const checkMyIdentity = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => identitySchema.parse(input))
+  .handler(async ({ data, context }) => {
+    const { compareWithReference } = await import("./services/identity.service.server");
+    return compareWithReference(context.userId, data.image);
   });
 
 export const getMyIdentityStatus = createServerFn({ method: "POST" })
