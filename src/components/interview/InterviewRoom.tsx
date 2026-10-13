@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/integrations/supabase/client";
 import type { QuestionDto } from "@/lib/domain/types";
-import { completeInterview, processAnswer, terminateInterview } from "@/lib/interview.functions";
+import { checkMyIdentity, completeInterview, processAnswer, terminateInterview } from "@/lib/interview.functions";
 import { useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { CheckCircle2, Loader2, ShieldAlert, Square, Video, Volume2 } from "lucide-react";
@@ -42,6 +42,8 @@ const SILENCE_TO_STOP_MS = 2500;
 const TICK_MS = 250;
 /** Multiple faces must persist this long before the interview is terminated. */
 const MULTI_FACE_CONFIRM_MS = 2000;
+/** How often the live face is re-compared with the verified reference face. */
+const IDENTITY_CHECK_MS = 20000;
 const TERMINATED_MESSAGE = "Multiple Faces Detected — Interview Terminated for Security Reasons.";
 
 
@@ -68,6 +70,12 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
   const multiSinceRef = useRef<number | null>(null);
   const clearFramesRef = useRef(0);
   const terminatedRef = useRef(false);
+  const checkIdentity = useServerFn(checkMyIdentity);
+  const pausedRef = useRef(false);
+  const identityBusyRef = useRef(false);
+  const identityTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [identityPause, setIdentityPause] = useState<string | null>(null);
+  const [reverifying, setReverifying] = useState(false);
 
   const [queue, setQueue] = useState<QuestionDto[]>(() =>
     [...questions].sort((a, b) => a.orderIndex - b.orderIndex),
@@ -130,6 +138,8 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
   const teardown = useCallback(() => {
     abandonedRef.current = true;
     clearTick();
+    if (identityTimerRef.current) clearInterval(identityTimerRef.current);
+    identityTimerRef.current = null;
     stopSpeech();
     try {
       if (recorderRef.current && recorderRef.current.state !== "inactive") {
@@ -290,6 +300,9 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
           error instanceof Error ? error.message : "The question could not be read aloud",
         );
       }
+      while (pausedRef.current && !abandonedRef.current) {
+        await new Promise((res) => setTimeout(res, 300));
+      }
       if (abandonedRef.current) return;
 
       // ---- recording ----
@@ -325,6 +338,7 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
         let elapsedMs = 0;
         clearTick();
         tickRef.current = setInterval(() => {
+          if (pausedRef.current) return;
           elapsedMs += TICK_MS;
           secondsRef.current = Math.floor(elapsedMs / 1000);
           const live = voiceRef.current?.liveLevel() ?? 0;
@@ -369,6 +383,64 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
       setPhase("next_question");
     },
     [analyseInBackground, speak],
+  );
+
+  const captureFrame = useCallback((): string | null => {
+    const video = videoRef.current;
+    if (!video || video.readyState < 2) return null;
+    const canvas = document.createElement("canvas");
+    canvas.width = 480;
+    canvas.height = Math.round(480 * ((video.videoHeight || 720) / (video.videoWidth || 1280)));
+    canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.8);
+  }, []);
+
+  const pauseForIdentity = useCallback((reason: string) => {
+    pausedRef.current = true;
+    setIdentityPause(reason);
+    audioRef.current?.pause();
+    const rec = recorderRef.current;
+    if (rec && rec.state === "recording") rec.pause();
+  }, []);
+
+  const resumeAfterIdentity = useCallback(() => {
+    pausedRef.current = false;
+    setIdentityPause(null);
+    const audio = audioRef.current;
+    if (audio && audio.src && audio.paused && !audio.ended) void audio.play().catch(() => undefined);
+    const rec = recorderRef.current;
+    if (rec && rec.state === "paused") rec.resume();
+  }, []);
+
+  /** Compares the current frame with the verified face; pauses on mismatch. */
+  const runIdentityCheck = useCallback(
+    async (manual: boolean) => {
+      if (identityBusyRef.current || terminatedRef.current || abandonedRef.current) return;
+      if (!manual && pausedRef.current) return;
+      const image = captureFrame();
+      if (!image) return;
+      identityBusyRef.current = true;
+      if (manual) setReverifying(true);
+      try {
+        const result = await checkIdentity({ data: { image } });
+        if (terminatedRef.current || abandonedRef.current) return;
+        if (result.verified) {
+          if (pausedRef.current) {
+            resumeAfterIdentity();
+            toast.success("Identity confirmed — interview resumed");
+          }
+        } else {
+          pauseForIdentity(result.reason);
+        }
+      } catch (error) {
+        // Network/AI hiccups never pause the interview; only explicit mismatches do.
+        if (manual) toast.error(error instanceof Error ? error.message : "Verification failed");
+      } finally {
+        identityBusyRef.current = false;
+        if (manual) setReverifying(false);
+      }
+    },
+    [captureFrame, checkIdentity, pauseForIdentity, resumeAfterIdentity],
   );
 
   const arm = useCallback(async () => {
@@ -423,6 +495,9 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
       voiceRef.current = new VoiceAnalyzer();
       // Unlock audio playback within this user gesture.
       audioRef.current = new Audio();
+      if (identityTimerRef.current) clearInterval(identityTimerRef.current);
+      identityTimerRef.current = setInterval(() => void runIdentityCheck(false), IDENTITY_CHECK_MS);
+      setTimeout(() => void runIdentityCheck(false), 4000);
       setPhase("next_question");
     } catch (error) {
       armedRef.current = false;
@@ -433,7 +508,7 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
       );
       setPhase("error");
     }
-  }, [interviewId, teardown, terminate]);
+  }, [interviewId, runIdentityCheck, teardown, terminate]);
 
   // Single driver: whenever the next question is due, run exactly one cycle.
   useEffect(() => {
@@ -509,6 +584,18 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
               <div className="absolute inset-x-0 top-0 flex items-center gap-2 bg-destructive p-2 text-destructive-foreground">
                 <ShieldAlert className="size-4" />
                 <p className="text-xs font-medium">Multiple faces detected — only you may be in view.</p>
+              </div>
+            )}
+
+            {identityPause && (
+              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-background/90 p-6 text-center">
+                <ShieldAlert className="size-8 text-destructive" />
+                <p className="text-sm font-semibold text-destructive">Interview paused — identity check failed</p>
+                <p className="text-xs text-muted-foreground">{identityPause}</p>
+                <Button onClick={() => void runIdentityCheck(true)} disabled={reverifying}>
+                  {reverifying && <Loader2 className="mr-2 size-4 animate-spin" />}
+                  {reverifying ? "Verifying…" : "Verify my face again"}
+                </Button>
               </div>
             )}
 
