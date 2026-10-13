@@ -1,22 +1,16 @@
 import { Button } from "@/components/ui/button";
 import { getMyIdentityStatus, verifyMyIdentity } from "@/lib/interview.functions";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { Camera, Loader2, ScanFace, ShieldAlert, ShieldCheck } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 /**
  * Live face verification: captures a webcam frame and compares it with the
- * registered profile photo on the server. Calls onChange with the result.
+ * becomes the reference face checked continuously during the interview. Calls onChange with the result.
  */
-export function IdentityCheck({
-  hasPhoto,
-  onChange,
-}: {
-  hasPhoto: boolean;
-  onChange: (verified: boolean) => void;
-}) {
+export function IdentityCheck({ onChange }: { onChange: (verified: boolean) => void }) {
+  const hasPhoto = true;
   const queryClient = useQueryClient();
   const fetchStatus = useServerFn(getMyIdentityStatus);
   const verify = useServerFn(verifyMyIdentity);
@@ -89,7 +83,7 @@ export function IdentityCheck({
     return (
       <div className="flex items-start gap-2 rounded-md border border-primary/40 p-3 text-sm">
         <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />
-        <p>Identity verified — your face matches your profile photo.</p>
+        <p>Identity verified — your live face is registered for this interview.</p>
       </div>
     );
   }
@@ -99,16 +93,7 @@ export function IdentityCheck({
       <div className="flex items-start gap-2 text-destructive">
         <ShieldAlert className="mt-0.5 size-4 shrink-0" />
         <p>
-          {hasPhoto ? (
-            "Verify your identity with a live face check before starting."
-          ) : (
-            <>
-              Add a clear profile photo of yourself first.{" "}
-              <Link to="/profile" className="underline">
-                Go to Profile
-              </Link>
-            </>
-          )}
+          "Verify your identity with a live face check before starting."
         </p>
       </div>
       {hasPhoto && (
@@ -124,7 +109,7 @@ export function IdentityCheck({
           {cameraOn ? (
             <Button className="w-full" onClick={() => void capture()} disabled={busy}>
               {busy ? <Loader2 className="mr-2 size-4 animate-spin" /> : <ScanFace className="mr-2 size-4" />}
-              {busy ? "Comparing with your profile photo…" : "Capture & verify"}
+              {busy ? "Verifying your face…" : "Capture & verify"}
             </Button>
           ) : (
             <Button variant="outline" className="w-full" onClick={() => void openCamera()}>
