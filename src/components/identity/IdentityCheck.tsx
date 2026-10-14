@@ -6,11 +6,10 @@ import { Camera, Loader2, ScanFace, ShieldAlert, ShieldCheck } from "lucide-reac
 import { useEffect, useRef, useState } from "react";
 
 /**
- * Live face verification: captures a webcam frame and compares it with the
- * becomes the reference face checked continuously during the interview. Calls onChange with the result.
+ * Live face verification: captures a webcam frame, confirms one real live face,
+ * and stores it as the reference checked continuously during the interview.
  */
 export function IdentityCheck({ onChange }: { onChange: (verified: boolean) => void }) {
-  const hasPhoto = true;
   const queryClient = useQueryClient();
   const fetchStatus = useServerFn(getMyIdentityStatus);
   const verify = useServerFn(verifyMyIdentity);
@@ -93,10 +92,10 @@ export function IdentityCheck({ onChange }: { onChange: (verified: boolean) => v
       <div className="flex items-start gap-2 text-destructive">
         <ShieldAlert className="mt-0.5 size-4 shrink-0" />
         <p>
-          "Verify your identity with a live face check before starting."
+          Verify your identity with a live face check before starting.
         </p>
       </div>
-      {hasPhoto && (
+      {(
         <>
           {cameraOn && (
             <video
