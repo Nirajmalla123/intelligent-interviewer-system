@@ -6,7 +6,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { BrainCircuit, Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { IdentityCheck } from "@/components/identity/IdentityCheck";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/auth")({
@@ -37,13 +38,15 @@ function AuthPage() {
   const [fullName, setFullName] = useState("");
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
+  const [enrolling, setEnrolling] = useState(false);
+  const enrollingRef = useRef(false);
 
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => {
-      if (data.session) navigate({ to: "/dashboard", replace: true });
+      if (data.session && !enrollingRef.current) navigate({ to: "/dashboard", replace: true });
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) navigate({ to: "/dashboard", replace: true });
+      if (session && !enrollingRef.current) navigate({ to: "/dashboard", replace: true });
     });
     return () => sub.subscription.unsubscribe();
   }, [navigate]);
@@ -59,6 +62,7 @@ function AuthPage() {
   async function signUp(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
+    enrollingRef.current = true;
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -68,6 +72,7 @@ function AuthPage() {
       },
     });
     if (error) {
+      enrollingRef.current = false;
       setBusy(false);
       toast.error(error.message);
       return;
@@ -76,6 +81,7 @@ function AuthPage() {
       // Accounts are confirmed automatically — sign straight in.
       const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
       if (signInError) {
+        enrollingRef.current = false;
         setBusy(false);
         setSent(true);
         toast.success("Account created — you can sign in now");
@@ -83,9 +89,13 @@ function AuthPage() {
       }
     }
     setBusy(false);
+    setEnrolling(true);
   }
 
-
+  const finishEnrollment = () => {
+    enrollingRef.current = false;
+    navigate({ to: "/dashboard", replace: true });
+  };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
@@ -96,7 +106,25 @@ function AuthPage() {
         </Link>
         <Card>
           <CardContent className="pt-6">
-            {sent ? (
+            {enrolling ? (
+              <div className="space-y-4">
+                <div>
+                  <h2 className="font-semibold">Capture your live photo</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Look at the camera. This live photo becomes your profile picture and is used to
+                    verify your identity during interviews.
+                  </p>
+                </div>
+                <IdentityCheck onChange={(ok) => ok && finishEnrollment()} />
+                <button
+                  type="button"
+                  className="w-full text-center text-xs text-muted-foreground underline"
+                  onClick={finishEnrollment}
+                >
+                  Do this later (required before any interview)
+                </button>
+              </div>
+            ) : sent ? (
               <p className="text-center text-sm text-muted-foreground">
                 Your account for <strong>{email}</strong> is ready. Switch to the sign in tab to
                 continue.
