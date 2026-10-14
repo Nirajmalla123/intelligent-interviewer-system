@@ -9,7 +9,13 @@ import { useEffect, useRef, useState } from "react";
  * Live face verification: captures a webcam frame, confirms one real live face,
  * and stores it as the reference checked continuously during the interview.
  */
-export function IdentityCheck({ onChange }: { onChange: (verified: boolean) => void }) {
+export function IdentityCheck({
+  onChange,
+  allowRetake = false,
+}: {
+  onChange?: (verified: boolean) => void;
+  allowRetake?: boolean;
+}) {
   const queryClient = useQueryClient();
   const fetchStatus = useServerFn(getMyIdentityStatus);
   const verify = useServerFn(verifyMyIdentity);
@@ -24,7 +30,7 @@ export function IdentityCheck({ onChange }: { onChange: (verified: boolean) => v
   const [message, setMessage] = useState<string | null>(null);
 
   const verified = status.data?.verified ?? false;
-  useEffect(() => onChange(verified), [verified, onChange]);
+  useEffect(() => onChange?.(verified), [verified, onChange]);
 
   const stopCamera = () => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -67,7 +73,10 @@ export function IdentityCheck({ onChange }: { onChange: (verified: boolean) => v
       setMessage(result.reason);
       if (result.verified) {
         stopCamera();
-        await queryClient.invalidateQueries({ queryKey: ["identity-status"] });
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["identity-status"] }),
+          queryClient.invalidateQueries({ queryKey: ["account"] }),
+        ]);
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Verification failed");
@@ -78,11 +87,18 @@ export function IdentityCheck({ onChange }: { onChange: (verified: boolean) => v
 
   if (status.isLoading) return <Loader2 className="size-4 animate-spin text-primary" />;
 
-  if (verified) {
+  if (verified && !cameraOn) {
     return (
       <div className="flex items-start gap-2 rounded-md border border-primary/40 p-3 text-sm">
         <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />
-        <p>Identity verified — your live face is registered for this interview.</p>
+        <div className="flex-1 space-y-2">
+          <p>Identity verified — your live face is registered as your profile picture.</p>
+          {allowRetake && (
+            <Button size="sm" variant="outline" onClick={() => void openCamera()}>
+              <Camera className="mr-2 size-4" /> Retake live photo
+            </Button>
+          )}
+        </div>
       </div>
     );
   }
