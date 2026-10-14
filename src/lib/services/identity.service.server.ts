@@ -135,6 +135,8 @@ export async function enrollIdentity(userId: string, liveImage: string): Promise
       .from(BUCKET)
       .upload(referencePath(userId), dataUrlToBytes(liveImage), { upsert: true, contentType: "image/jpeg" });
     if (error) throw new Error("Could not save your face reference. Please retry.");
+    // The live capture doubles as the candidate's profile picture.
+    await supabaseAdmin.from("profiles").update({ avatar_url: referencePath(userId) }).eq("id", userId);
   }
   await record(userId, result, verdict.reason);
   return result;

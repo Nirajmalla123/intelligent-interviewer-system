@@ -10,6 +10,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { Loader2, Upload } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { IdentityCheck } from "@/components/identity/IdentityCheck";
+import { initialsOf, signedAvatarUrl } from "@/lib/avatar";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -55,6 +58,14 @@ function ProfilePage() {
   });
   const [avatarPath, setAvatarPath] = useState<string | null>(null);
   const [resumeBusy, setResumeBusy] = useState(false);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void signedAvatarUrl(avatarPath).then((url) => alive && setPhotoUrl(url ? `${url}&t=${Date.now()}` : null));
+    return () => {
+      alive = false;
+    };
+  }, [avatarPath, account.dataUpdatedAt]);
 
   useEffect(() => {
     const data = account.data;
@@ -134,6 +145,23 @@ function ProfilePage() {
     >
       <div className="grid gap-6 lg:grid-cols-2">
 
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="text-base">Profile picture (live capture)</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-start">
+            <Avatar className="size-24 shrink-0">
+              {photoUrl && <AvatarImage src={photoUrl} alt="Your live profile picture" className="object-cover" />}
+              <AvatarFallback className="text-xl">{initialsOf(form.fullName)}</AvatarFallback>
+            </Avatar>
+            <div className="flex-1 space-y-2">
+              <p className="text-sm text-muted-foreground">
+                Your profile picture is taken live from your webcam and used to verify your identity throughout the interview. Photo uploads are not allowed.
+              </p>
+              <IdentityCheck allowRetake />
+            </div>
+          </CardContent>
+        </Card>
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Details</CardTitle>
