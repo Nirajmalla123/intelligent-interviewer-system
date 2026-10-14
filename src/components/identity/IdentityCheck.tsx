@@ -104,11 +104,13 @@ export function IdentityCheck({
   }
 
   return (
-    <div className="space-y-3 rounded-md border border-destructive/50 p-3 text-sm">
-      <div className="flex items-start gap-2 text-destructive">
-        <ShieldAlert className="mt-0.5 size-4 shrink-0" />
+    <div className={`space-y-3 rounded-md border p-3 text-sm ${verified ? "border-primary/40" : "border-destructive/50"}`}>
+      <div className={`flex items-start gap-2 ${verified ? "" : "text-destructive"}`}>
+        {verified ? <Camera className="mt-0.5 size-4 shrink-0 text-primary" /> : <ShieldAlert className="mt-0.5 size-4 shrink-0" />}
         <p>
-          Verify your identity with a live face check before starting.
+          {verified
+            ? "Look at the camera and capture a new live photo to update your profile picture."
+            : "Verify your identity with a live face check before starting."}
         </p>
       </div>
       {(
@@ -122,10 +124,17 @@ export function IdentityCheck({
             />
           )}
           {cameraOn ? (
-            <Button className="w-full" onClick={() => void capture()} disabled={busy}>
-              {busy ? <Loader2 className="mr-2 size-4 animate-spin" /> : <ScanFace className="mr-2 size-4" />}
-              {busy ? "Verifying your face…" : "Capture & verify"}
-            </Button>
+            <div className="flex gap-2">
+              <Button className="flex-1" onClick={() => void capture()} disabled={busy}>
+                {busy ? <Loader2 className="mr-2 size-4 animate-spin" /> : <ScanFace className="mr-2 size-4" />}
+                {busy ? "Verifying your face…" : verified ? "Capture & update photo" : "Capture & verify"}
+              </Button>
+              {verified && (
+                <Button variant="outline" disabled={busy} onClick={stopCamera}>
+                  Cancel
+                </Button>
+              )}
+            </div>
           ) : (
             <Button variant="outline" className="w-full" onClick={() => void openCamera()}>
               <Camera className="mr-2 size-4" /> Start face verification
