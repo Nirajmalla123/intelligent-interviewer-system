@@ -86,6 +86,15 @@ export class FaceAnalyzer {
     });
   }
 
+  /** One-off on-device face count for a single frame (-1 if unavailable). */
+  countFaces(video: HTMLVideoElement): number {
+    try {
+      return this.detect(video) ? this.faceCount : -1;
+    } catch {
+      return -1;
+    }
+  }
+
   start(video: HTMLVideoElement) {
     this.samples = [];
     this.blinks = 0;
