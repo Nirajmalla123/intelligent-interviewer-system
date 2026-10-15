@@ -39,6 +39,7 @@ function AuthPage() {
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
   const [enrolling, setEnrolling] = useState(false);
+  const [loginCheck, setLoginCheck] = useState(false);
   const enrollingRef = useRef(false);
 
   useEffect(() => {
@@ -54,9 +55,17 @@ function AuthPage() {
   async function signIn(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
+    enrollingRef.current = true;
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setBusy(false);
-    if (error) toast.error(error.message);
+    if (error) {
+      enrollingRef.current = false;
+      toast.error(error.message);
+      return;
+    }
+    // Live face check at login, compared with the registered live photo.
+    setLoginCheck(true);
+    setEnrolling(true);
   }
 
   async function signUp(e: React.FormEvent) {
@@ -109,13 +118,19 @@ function AuthPage() {
             {enrolling ? (
               <div className="space-y-4">
                 <div>
-                  <h2 className="font-semibold">Capture your live photo</h2>
+                  <h2 className="font-semibold">
+                    {loginCheck ? "Verify your face" : "Capture your live photo"}
+                  </h2>
                   <p className="text-sm text-muted-foreground">
-                    Look at the camera. This live photo becomes your profile picture and is used to
-                    verify your identity during interviews.
+                    {loginCheck
+                      ? "Look at the camera. We compare your live face with your registered profile picture. If you don't have one yet, this capture becomes your profile picture."
+                      : "Look at the camera. This live photo becomes your profile picture and is used to verify your identity during interviews."}
                   </p>
                 </div>
-                <IdentityCheck onChange={(ok) => ok && finishEnrollment()} />
+                <IdentityCheck
+                  mode={loginCheck ? "login" : "enroll"}
+                  onChange={(ok) => ok && finishEnrollment()}
+                />
                 <button
                   type="button"
                   className="w-full text-center text-xs text-muted-foreground underline"
