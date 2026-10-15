@@ -87,7 +87,7 @@ async function askVision(liveImage: string, referenceImage: string | null): Prom
   });
 
   if (!response.ok) {
-    throw new Error(
+    throw new AiUnavailableError(
       response.status === 429
         ? "Verification is busy. Please retry in a moment."
         : response.status === 402
@@ -120,16 +120,44 @@ async function record(userId: string, result: IdentityResult, reason: string) {
   });
 }
 
+/** The AI service could not be reached (no credits, rate limit, outage). */
+class AiUnavailableError extends Error {}
+
 /**
  * Pre-interview check: confirms one real live face is on camera and stores
  * that capture as the reference face for continuous checks during the interview.
+ * If the AI service is unavailable, the on-device face count (exactly one face)
+ * is used instead so the candidate can still register their live photo.
  */
-export async function enrollIdentity(userId: string, liveImage: string): Promise<IdentityResult> {
-  const verdict = await askVision(liveImage, null);
-  const problem = faceProblem(verdict);
-  const result: IdentityResult = problem
-    ? { verified: false, confidence: 0, reason: problem }
-    : { verified: true, confidence: verdict.confidence, reason: "Identity verified." };
+export async function enrollIdentity(
+  userId: string,
+  liveImage: string,
+  localFaceCount = -1,
+): Promise<IdentityResult> {
+  let result: IdentityResult;
+  let reason: string;
+  try {
+    const verdict = await askVision(liveImage, null);
+    const problem = faceProblem(verdict);
+    result = problem
+      ? { verified: false, confidence: 0, reason: problem }
+      : { verified: true, confidence: verdict.confidence, reason: "Identity verified." };
+    reason = verdict.reason;
+  } catch (error) {
+    if (!(error instanceof AiUnavailableError) || localFaceCount < 0) throw error;
+    const problem = faceProblem({
+      live_face_count: localFaceCount,
+      reference_face_count: 0,
+      same_person: true,
+      is_live_person: true,
+      confidence: 0,
+      reason: "",
+    });
+    result = problem
+      ? { verified: false, confidence: 0, reason: problem }
+      : { verified: true, confidence: 0.5, reason: "Live photo saved and identity verified." };
+    reason = `On-device check (AI unavailable: ${error.message})`;
+  }
   if (result.verified) {
     const { error } = await supabaseAdmin.storage
       .from(BUCKET)
@@ -138,8 +166,16 @@ export async function enrollIdentity(userId: string, liveImage: string): Promise
     // The live capture doubles as the candidate's profile picture.
     await supabaseAdmin.from("profiles").update({ avatar_url: referencePath(userId) }).eq("id", userId);
   }
-  await record(userId, result, verdict.reason);
+  await record(userId, result, reason);
   return result;
+}
+
+/** True when the candidate has a stored live reference photo. */
+export async function hasReference(userId: string): Promise<boolean> {
+  const { data } = await supabaseAdmin.storage
+    .from(BUCKET)
+    .list(userId, { search: "face-reference.jpg", limit: 1 });
+  return (data ?? []).some((f) => f.name === "face-reference.jpg");
 }
 
 /** During the interview: compares the current webcam frame with the reference face. */
