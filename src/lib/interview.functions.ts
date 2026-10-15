@@ -279,6 +279,7 @@ const identitySchema = z.object({
     .string()
     .max(3_000_000)
     .regex(/^data:image\/(jpeg|png|webp);base64,/),
+  localFaceCount: z.number().int().min(-1).max(10).optional(),
 });
 
 /** Pre-interview live face capture; becomes the reference face. */
@@ -287,7 +288,7 @@ export const verifyMyIdentity = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => identitySchema.parse(input))
   .handler(async ({ data, context }) => {
     const { enrollIdentity } = await import("./services/identity.service.server");
-    return enrollIdentity(context.userId, data.image);
+    return enrollIdentity(context.userId, data.image, data.localFaceCount ?? -1);
   });
 
 /** Continuous in-interview check against the reference face. */
@@ -302,8 +303,14 @@ export const checkMyIdentity = createServerFn({ method: "POST" })
 export const getMyIdentityStatus = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const { hasRecentVerification } = await import("./services/identity.service.server");
-    return { verified: await hasRecentVerification(context.userId) };
+    const { hasRecentVerification, hasReference } = await import(
+      "./services/identity.service.server"
+    );
+    const [verified, reference] = await Promise.all([
+      hasRecentVerification(context.userId),
+      hasReference(context.userId),
+    ]);
+    return { verified, hasReference: reference };
   });
 
 /** Ends an interview for a security violation; it can no longer be continued. */
