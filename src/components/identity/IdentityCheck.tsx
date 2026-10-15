@@ -95,7 +95,7 @@ export function IdentityCheck({
           <p>Identity verified — your live face is registered as your profile picture.</p>
           {allowRetake && (
             <Button size="sm" variant="outline" onClick={() => void openCamera()}>
-              <Camera className="mr-2 size-4" /> Retake live photo
+              <Camera className="mr-2 size-4" /> Capture/Update Profile Photo
             </Button>
           )}
         </div>
@@ -137,7 +137,7 @@ export function IdentityCheck({
             </div>
           ) : (
             <Button variant="outline" className="w-full" onClick={() => void openCamera()}>
-              <Camera className="mr-2 size-4" /> Start face verification
+              <Camera className="mr-2 size-4" /> {allowRetake ? "Capture/Update Profile Photo" : "Start face verification"}
             </Button>
           )}
         </>
