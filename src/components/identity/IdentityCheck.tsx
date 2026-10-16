@@ -38,7 +38,9 @@ export function IdentityCheck({
 
   const compareMode = mode === "login" && (status.data?.hasReference ?? false);
   const verified = mode === "login" ? loginPassed : (status.data?.verified ?? false);
-  useEffect(() => onChange?.(verified), [verified, onChange]);
+  useEffect(() => {
+    onChange?.(verified);
+  }, [verified, onChange]);
 
   const stopCamera = () => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
