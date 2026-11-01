@@ -37,6 +37,19 @@ export class LlmProviderError extends Error {
 
 const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
+/** Extracts the gateway's own message (it names the remedy) from an error body. */
+function gatewayErrorMessage(detail: string, fallback: string): string {
+  try {
+    const parsed = JSON.parse(detail) as { message?: unknown };
+    if (typeof parsed.message === "string" && parsed.message.trim().length > 0) {
+      return parsed.message.trim();
+    }
+  } catch {
+    // not JSON — fall through
+  }
+  return fallback;
+}
+
 function parseJsonContent<T>(raw: string, providerName: string): T {
   const trimmed = raw.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "");
   try {

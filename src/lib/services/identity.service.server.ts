@@ -87,11 +87,12 @@ async function askVision(liveImage: string, referenceImage: string | null): Prom
   });
 
   if (!response.ok) {
+    const detail = await response.text().catch(() => "");
     throw new AiUnavailableError(
       response.status === 429
         ? "Verification is busy. Please retry in a moment."
         : response.status === 402
-          ? "AI credits exhausted for this workspace."
+          ? gatewayErrorMessage(detail, "AI credits exhausted for this workspace.")
           : `Identity verification failed (${response.status})`,
     );
   }
