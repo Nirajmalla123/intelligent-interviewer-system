@@ -22,6 +22,19 @@ export class SpeechProviderError extends Error {
 const TRANSCRIPTION_URL = "https://ai.gateway.lovable.dev/v1/audio/transcriptions";
 const MIN_AUDIO_BYTES = 2048;
 
+/** Extracts the gateway's own message (it names the remedy) from an error body. */
+function gatewayErrorMessage(detail: string, fallback: string): string {
+  try {
+    const parsed = JSON.parse(detail) as { message?: unknown };
+    if (typeof parsed.message === "string" && parsed.message.trim().length > 0) {
+      return parsed.message.trim();
+    }
+  } catch {
+    // not JSON — fall through
+  }
+  return fallback;
+}
+
 function countWords(text: string): number {
   return text.trim().length === 0 ? 0 : text.trim().split(/\s+/).length;
 }
@@ -63,7 +76,7 @@ class LovableAiSpeechProvider implements SpeechProvider {
         response.status === 429
           ? "Transcription rate limit reached. Please retry shortly."
           : response.status === 402
-            ? "AI credits exhausted for this workspace."
+            ? gatewayErrorMessage(detail, "AI credits exhausted for this workspace.")
             : `Transcription failed (${response.status}): ${detail.slice(0, 300)}`,
         response.status || 502,
       );

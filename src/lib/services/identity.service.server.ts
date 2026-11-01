@@ -51,6 +51,19 @@ function dataUrlToBytes(dataUrl: string): Uint8Array {
   return out;
 }
 
+/** Extracts the gateway's own message (it names the remedy) from an error body. */
+function gatewayErrorMessage(detail: string, fallback: string): string {
+  try {
+    const parsed = JSON.parse(detail) as { message?: unknown };
+    if (typeof parsed.message === "string" && parsed.message.trim().length > 0) {
+      return parsed.message.trim();
+    }
+  } catch {
+    // not JSON — fall through
+  }
+  return fallback;
+}
+
 async function askVision(liveImage: string, referenceImage: string | null): Promise<VisionVerdict> {
   const apiKey = process.env["LOVABLE_API_KEY"];
   if (!apiKey) throw new Error("Identity verification is not configured");
@@ -87,11 +100,12 @@ async function askVision(liveImage: string, referenceImage: string | null): Prom
   });
 
   if (!response.ok) {
+    const detail = await response.text().catch(() => "");
     throw new AiUnavailableError(
       response.status === 429
         ? "Verification is busy. Please retry in a moment."
         : response.status === 402
-          ? "AI credits exhausted for this workspace."
+          ? gatewayErrorMessage(detail, "AI credits exhausted for this workspace.")
           : `Identity verification failed (${response.status})`,
     );
   }
