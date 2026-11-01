@@ -88,7 +88,7 @@ class LovableAiProvider implements LlmProvider {
         response.status === 429
           ? "AI rate limit reached. Please retry in a moment."
           : response.status === 402
-            ? "AI credits exhausted for this workspace."
+            ? gatewayErrorMessage(detail, "AI credits exhausted for this workspace.")
             : `AI evaluation failed (${response.status}): ${detail.slice(0, 300)}`,
         response.status,
       );
