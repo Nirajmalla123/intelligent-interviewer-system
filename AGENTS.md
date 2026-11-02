@@ -8,3 +8,5 @@
 > Commits you push to the connected branch sync back to Lovable and show up in
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
+
+- Generate question plans and adaptive follow-ups through the pure local question bank; resolve the LLM lazily only for assessment/reporting so starting an interview never requires AI credentials or JSON model output.

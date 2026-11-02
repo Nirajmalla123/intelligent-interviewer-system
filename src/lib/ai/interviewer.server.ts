@@ -1,4 +1,5 @@
 import { resolveLlmProvider, type LlmProvider } from "./llm-provider.server";
+import { generateLocalQuestionPlan, generateLocalFollowUp } from "@/lib/domain/question-bank";
 import type {
   EmotionMetrics,
   FaceMetrics,
@@ -11,29 +12,6 @@ import type {
  * produces follow-up questions. Depends only on the LlmProvider abstraction.
  */
 
-const QUESTION_PLAN_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["questions"],
-  properties: {
-    questions: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["text", "category"],
-        properties: {
-          text: { type: "string" },
-          category: {
-            type: "string",
-            enum: ["introduction", "technical", "system_design", "behavioural", "situational"],
-          },
-        },
-      },
-    },
-  },
-} as const;
-
 const EVALUATION_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -45,7 +23,6 @@ const EVALUATION_SCHEMA = {
     "evaluation",
     "strengths",
     "weaknesses",
-    "follow_up_question",
   ],
   properties: {
     technical_score: { type: "number" },
@@ -55,7 +32,6 @@ const EVALUATION_SCHEMA = {
     evaluation: { type: "string" },
     strengths: { type: "array", items: { type: "string" } },
     weaknesses: { type: "array", items: { type: "string" } },
-    follow_up_question: { type: ["string", "null"] },
   },
 } as const;
 
@@ -96,6 +72,7 @@ export interface EvaluationRequest {
   emotion: EmotionMetrics;
   voice: VoiceMetrics;
   isLastQuestion: boolean;
+  askedQuestions?: string[];
 }
 
 export interface SummaryRequest {
@@ -112,14 +89,6 @@ export interface SummaryResult {
   recommendationNote: string;
 }
 
-const DIFFICULTY_GUIDE = {
-  junior:
-    "Difficulty: VERY VERY EASY beginner level — basic definitions like 'What is HTML?' or 'What is a variable?'.",
-  mid: "Difficulty: easy — simple basics and everyday practical usage, no deep internals.",
-  senior: "Difficulty: easy to moderate — simple practical experience questions, nothing tricky.",
-  lead: "Difficulty: easy to moderate — simple questions about teamwork, decisions and basic architecture.",
-} as const;
-
 const clampScore = (value: unknown): number => {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return 0;
@@ -132,7 +101,12 @@ const toStringArray = (value: unknown): string[] =>
     : [];
 
 export class InterviewerAi {
-  constructor(private readonly provider: LlmProvider = resolveLlmProvider()) {}
+  constructor(private configuredProvider?: LlmProvider) {}
+
+  private get provider(): LlmProvider {
+    this.configuredProvider ??= resolveLlmProvider();
+    return this.configuredProvider;
+  }
 
   get providerName(): string {
     return this.provider.name;
@@ -143,46 +117,7 @@ export class InterviewerAi {
   }
 
   async generateQuestionPlan(request: QuestionPlanRequest): Promise<PlannedQuestion[]> {
-    const result = await this.provider.completeJson<{ questions: PlannedQuestion[] }>({
-      schemaName: "question_plan",
-      schema: QUESTION_PLAN_SCHEMA,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a friendly technical interviewer. Design a spoken interview with SIMPLE, EASY questions. " +
-            "Every question must be one short sentence (under 20 words), use plain everyday language, " +
-            "ask about a single basic concept, and be answerable out loud in 30-60 seconds. " +
-            "Never ask multi-part, tricky, or deep system-design questions. Do not ask the candidate to write or read code. " +
-            "Question 1 is always a short introduction question. " +
-            DIFFICULTY_GUIDE[request.seniority as keyof typeof DIFFICULTY_GUIDE],
-        },
-        {
-          role: "user",
-          content: [
-            `Role: ${request.jobRole}`,
-            `Seniority: ${request.seniority}`,
-            `Candidate years of experience: ${request.yearsExperience}`,
-            request.candidateHeadline ? `Candidate headline: ${request.candidateHeadline}` : "",
-            request.resumeText
-              ? `Resume excerpt:\n${request.resumeText.slice(0, 4000)}`
-              : "No resume provided; ask role-generic questions.",
-            `Produce exactly ${request.count} questions.`,
-          ]
-            .filter(Boolean)
-            .join("\n"),
-        },
-      ],
-    });
-
-    const questions = Array.isArray(result.questions) ? result.questions : [];
-    if (questions.length === 0) {
-      throw new Error("The AI interviewer did not return any questions");
-    }
-    return questions.slice(0, request.count).map((q) => ({
-      text: String(q.text),
-      category: String(q.category ?? "technical"),
-    }));
+    return generateLocalQuestionPlan(request);
   }
 
   async evaluateAnswer(request: EvaluationRequest): Promise<LlmEvaluation> {
@@ -198,7 +133,7 @@ export class InterviewerAi {
             "structure and clarity, relevance to the question, and spoken grammar. " +
             "Non-verbal signals are provided as context only — never score technical content " +
             "from them. If the transcript is empty or off-topic, score low and say why. " +
-            "Return a probing follow-up question when one would reveal more depth, otherwise null.",
+            "Evaluate only the answer; follow-up questions are selected separately.",
         },
         {
           role: "user",
@@ -216,9 +151,6 @@ export class InterviewerAi {
               `dominant expression ${request.emotion.dominant}, ` +
               `speech rate ${request.voice.speechRateWpm.toFixed(0)} wpm, ` +
               `${request.voice.pauseCount} pauses.`,
-            request.isLastQuestion
-              ? "This is the final planned question: set follow_up_question to null."
-              : "A follow-up may be asked.",
           ]
             .filter(Boolean)
             .join("\n"),
@@ -226,7 +158,6 @@ export class InterviewerAi {
       ],
     });
 
-    const followUp = raw["follow_up_question"];
     return {
       provider: this.provider.name,
       model: this.provider.model,
@@ -237,10 +168,7 @@ export class InterviewerAi {
       evaluation: typeof raw["evaluation"] === "string" ? raw["evaluation"] : "",
       strengths: toStringArray(raw["strengths"]),
       weaknesses: toStringArray(raw["weaknesses"]),
-      followUpQuestion:
-        request.isLastQuestion || typeof followUp !== "string" || followUp.trim().length === 0
-          ? null
-          : followUp.trim(),
+      followUpQuestion: generateLocalFollowUp(request),
     };
   }
 

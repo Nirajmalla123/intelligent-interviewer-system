@@ -206,7 +206,8 @@ export class InterviewService {
         face: input.face,
         emotion: input.emotion,
         voice: input.voice,
-        isLastQuestion,
+        isLastQuestion: isLastQuestion || question.is_followup,
+        askedQuestions: allQuestions.map((item) => item.text),
       });
 
       await Promise.all([
