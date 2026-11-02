@@ -37,7 +37,9 @@ function shuffled<T>(items: T[], random: () => number): T[] {
   for (let i = result.length - 1; i > 0; i--) {
     const j = Math.min(i, Math.max(0, Math.floor(random() * (i + 1))));
     const value = result[i];
-    result[i] = result[j];
+    const other = result[j];
+    if (value === undefined || other === undefined) continue;
+    result[i] = other;
     result[j] = value;
   }
   return result;

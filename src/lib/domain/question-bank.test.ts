@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { JOB_ROLES } from "./types";
 import { generateLocalFollowUp, generateLocalQuestionPlan } from "./question-bank";
 import { InterviewerAi } from "../ai/interviewer.server";
@@ -11,7 +11,7 @@ describe("free local question generation", () => {
           const questions = generateLocalQuestionPlan({ jobRole, seniority, count });
           expect(questions).toHaveLength(count);
           expect(new Set(questions.map((q) => q.text)).size).toBe(count);
-          expect(questions[0].category).toBe("introduction");
+          expect(questions[0]?.category).toBe("introduction");
         }
       }
     });
@@ -32,7 +32,7 @@ describe("free local question generation", () => {
   test("sessions vary and resume skills prioritize role-relevant topics", () => {
     const input = { jobRole: "Frontend Engineer", seniority: "junior", count: 12 };
     expect(generateLocalQuestionPlan(input, () => 0)).not.toEqual(generateLocalQuestionPlan(input, () => 0.99));
-    expect(generateLocalQuestionPlan({ ...input, resumeText: "React" }, () => 0)[1].text).toContain("React");
+    expect(generateLocalQuestionPlan({ ...input, resumeText: "React" }, () => 0)[1]?.text).toContain("React");
   });
 
   test("start question planning never calls an AI provider or parses its JSON", async () => {
