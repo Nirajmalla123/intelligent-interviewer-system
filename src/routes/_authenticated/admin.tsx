@@ -14,6 +14,9 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { initialsOf, signedAvatarUrl } from "@/lib/avatar";
 import { getAdminOverview } from "@/lib/interview.functions";
+import { adminLogin, adminLogout, getAdminGateStatus } from "@/lib/admin-gate.functions";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
@@ -50,7 +53,66 @@ export const Route = createFileRoute("/_authenticated/admin")({
 });
 
 function AdminPage() {
+  const fetchStatus = useServerFn(getAdminGateStatus);
+  const status = useQuery({ queryKey: ["admin-gate"], queryFn: () => fetchStatus(), retry: false });
+  if (status.isLoading) {
+    return (
+      <AppShell title="Recruiter overview" subtitle="Admin access" isAdmin>
+        <Loader2 className="size-4 animate-spin text-primary" />
+      </AppShell>
+    );
+  }
+  if (!status.data?.unlocked) return <AdminLogin onDone={() => void status.refetch()} />;
+  return <AdminContent onLogout={() => void status.refetch()} />;
+}
+
+function AdminLogin({ onDone }: { onDone: () => void }) {
+  const login = useServerFn(adminLogin);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await login({ data: { username, password } });
+      if (res.ok) onDone();
+      else setError("Incorrect username or password");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Login failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <AppShell title="Admin login" subtitle="Enter the admin credentials to continue." isAdmin>
+      <Card className="max-w-sm">
+        <CardContent className="pt-6">
+          <form className="space-y-4" onSubmit={submit}>
+            <div className="space-y-1.5">
+              <Label htmlFor="admin-user">Username</Label>
+              <Input id="admin-user" value={username} required autoComplete="username" onChange={(e) => setUsername(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="admin-pass">Password</Label>
+              <Input id="admin-pass" type="password" value={password} required autoComplete="current-password" onChange={(e) => setPassword(e.target.value)} />
+            </div>
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            <Button type="submit" className="w-full" disabled={busy}>
+              {busy && <Loader2 className="mr-2 size-4 animate-spin" />} Unlock admin
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+    </AppShell>
+  );
+}
+
+function AdminContent({ onLogout }: { onLogout: () => void }) {
   const fetchOverview = useServerFn(getAdminOverview);
+  const logout = useServerFn(adminLogout);
   const overview = useQuery({
     queryKey: ["admin-overview"],
     queryFn: () => fetchOverview({}),
@@ -111,6 +173,13 @@ function AdminPage() {
                   className={`mr-2 size-4 ${overview.isFetching ? "animate-spin" : ""}`}
                 />
                 Refresh
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void logout().then(onLogout)}
+              >
+                Lock admin
               </Button>
             </CardHeader>
             <CardContent className="h-64">
