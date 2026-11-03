@@ -2,27 +2,12 @@ import { createServerFn } from "@tanstack/react-start";
 import { useSession } from "@tanstack/react-start/server";
 import { createHash, timingSafeEqual } from "node:crypto";
 
-type AdminSession = { admin?: boolean };
-
-function sessionConfig() {
-  return {
-    password: process.env["ADMIN_SESSION_SECRET"]!,
-    name: "admin-gate",
-    maxAge: 60 * 60 * 8,
-    cookie: { httpOnly: true, secure: true, sameSite: "lax" as const, path: "/" },
-  };
-}
+import { sessionConfig, type AdminSession } from "./admin-gate.server";
 
 function safeEqual(a: string, b: string) {
   const x = createHash("sha256").update(a, "utf8").digest();
   const y = createHash("sha256").update(b, "utf8").digest();
   return timingSafeEqual(x, y);
-}
-
-/** Server-only check used by admin data functions. */
-export async function requireAdminGate() {
-  const session = await useSession<AdminSession>(sessionConfig());
-  if (!session.data.admin) throw new Error("Admin login required");
 }
 
 export const getAdminGateStatus = createServerFn({ method: "GET" }).handler(async () => {

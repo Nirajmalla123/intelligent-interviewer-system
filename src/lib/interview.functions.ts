@@ -252,7 +252,7 @@ export const getAdminOverview = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     void context;
-    const { requireAdminGate } = await import("./admin-gate.functions");
+    const { requireAdminGate } = await import("./admin-gate.server");
     await requireAdminGate();
     const { makeReportService } = await import("./services/factory.server");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -263,7 +263,7 @@ export const listAllInterviews = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     void context;
-    const { requireAdminGate } = await import("./admin-gate.functions");
+    const { requireAdminGate } = await import("./admin-gate.server");
     await requireAdminGate();
     const { makeReportService } = await import("./services/factory.server");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
