@@ -251,11 +251,9 @@ export const saveMyAccount = createServerFn({ method: "POST" })
 export const getAdminOverview = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const { data: isAdmin } = await context.supabase.rpc("has_role", {
-      _user_id: context.userId,
-      _role: "admin",
-    });
-    if (!isAdmin) throw new Error("Forbidden: admin role required");
+    void context;
+    const { requireAdminGate } = await import("./admin-gate.server");
+    await requireAdminGate();
     const { makeReportService } = await import("./services/factory.server");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     return makeReportService(supabaseAdmin as unknown as Db).adminOverview();
@@ -264,11 +262,9 @@ export const getAdminOverview = createServerFn({ method: "POST" })
 export const listAllInterviews = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const { data: isAdmin } = await context.supabase.rpc("has_role", {
-      _user_id: context.userId,
-      _role: "admin",
-    });
-    if (!isAdmin) throw new Error("Forbidden: admin role required");
+    void context;
+    const { requireAdminGate } = await import("./admin-gate.server");
+    await requireAdminGate();
     const { makeReportService } = await import("./services/factory.server");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     return makeReportService(supabaseAdmin as unknown as Db).listAllInterviews();
