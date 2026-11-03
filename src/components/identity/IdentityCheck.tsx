@@ -95,7 +95,7 @@ export function IdentityCheck({
       const image = canvas.toDataURL("image/jpeg", 0.85);
       const localFaceCount = analyzerRef.current?.countFaces(video) ?? -1;
       const result = compareMode
-        ? await compare({ data: { image } })
+        ? await compare({ data: { image, localFaceCount } })
         : await verify({ data: { image, localFaceCount } });
       setMessage(result.reason);
       if (result.verified) {

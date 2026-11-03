@@ -422,7 +422,9 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
       identityBusyRef.current = true;
       if (manual) setReverifying(true);
       try {
-        const result = await checkIdentity({ data: { image } });
+        const video = videoRef.current;
+        const localFaceCount = video && faceRef.current ? faceRef.current.countFaces(video) : -1;
+        const result = await checkIdentity({ data: { image, localFaceCount } });
         if (terminatedRef.current || abandonedRef.current) return;
         if (result.verified) {
           if (pausedRef.current) {

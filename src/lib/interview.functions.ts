@@ -297,7 +297,7 @@ export const checkMyIdentity = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => identitySchema.parse(input))
   .handler(async ({ data, context }) => {
     const { compareWithReference } = await import("./services/identity.service.server");
-    return compareWithReference(context.userId, data.image);
+    return compareWithReference(context.userId, data.image, data.localFaceCount ?? -1);
   });
 
 export const getMyIdentityStatus = createServerFn({ method: "POST" })
