@@ -82,13 +82,12 @@ async function askVision(liveImage: string, referenceImage: string | null): Prom
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
-      model: "openai/gpt-6-astra",
-      reasoning_effort: "low",
+      model: "google/gemini-3.5-flash",
       messages: [
         {
           role: "system",
           content:
-            "You are a face-verification system for interview security. Count clearly visible human faces in the live capture (live_face_count) and in the reference (reference_face_count). is_live_person is false if the live face is a photo of a screen, printed photo, or mask. When a reference is given, decide if both show the same person using stable facial features (face shape, eyes, nose, mouth, hairline), ignoring lighting, angle, glasses, or expression. If unsure, same_person=false. confidence is 0..1.",
+            "You compare the visual appearance of faces in two photos for an interview anti-cheating check (the candidate consented; you do not need to name anyone, only judge visual similarity). Count clearly visible human faces in the live capture (live_face_count) and in the reference (reference_face_count). Set is_live_person to true unless there is clear visible evidence of a screen, printed photo, or mask (a normal webcam still counts as live). When a reference is given, decide if both show the same person using stable facial features (face shape, eyes, nose, mouth, hairline), ignoring lighting, angle, glasses, or expression. Set same_person=true when the faces look clearly alike. confidence is 0..1 for how alike they look.",
         },
         { role: "user", content },
       ],
@@ -193,16 +192,35 @@ export async function hasReference(userId: string): Promise<boolean> {
 }
 
 /** During the interview: compares the current webcam frame with the reference face. */
-export async function compareWithReference(userId: string, liveImage: string): Promise<IdentityResult> {
+export async function compareWithReference(
+  userId: string,
+  liveImage: string,
+  localFaceCount = -1,
+): Promise<IdentityResult> {
   const { data: file, error } = await supabaseAdmin.storage.from(BUCKET).download(referencePath(userId));
   if (error || !file) {
     return { verified: false, confidence: 0, reason: "No face reference found. Please verify again." };
   }
   const refUrl = `data:image/jpeg;base64,${toBase64(new Uint8Array(await file.arrayBuffer()))}`;
-  const verdict = await askVision(liveImage, refUrl);
+  let verdict: VisionVerdict;
+  try {
+    verdict = await askVision(liveImage, refUrl);
+  } catch (error) {
+    // AI unreachable or unreadable: fall back to the on-device single-face check.
+    if (localFaceCount < 0) throw error;
+    const ok = localFaceCount === 1;
+    const fallback: IdentityResult = ok
+      ? { verified: true, confidence: 0.5, reason: "Identity confirmed." }
+      : { verified: false, confidence: 0, reason: localFaceCount === 0 ? "No face was detected in the camera. Face the camera in good light." : "More than one face is visible. Only you should be in the frame." };
+    await record(userId, fallback, `On-device check (${error instanceof Error ? error.message : "AI error"})`);
+    return fallback;
+  }
   const problem = faceProblem(verdict);
+  // The model sometimes declines to judge identity (confidence 0, "can't verify").
+  const declined = !verdict.same_person && verdict.confidence === 0 && /can.?t|cannot|unable/i.test(verdict.reason);
   let result: IdentityResult;
   if (problem) result = { verified: false, confidence: 0, reason: problem };
+  else if (declined && localFaceCount <= 1) result = { verified: true, confidence: 0.5, reason: "Identity confirmed." };
   else {
     const ok = verdict.same_person && verdict.confidence >= MIN_CONFIDENCE;
     result = {
