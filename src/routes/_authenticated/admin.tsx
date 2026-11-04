@@ -52,9 +52,33 @@ export const Route = createFileRoute("/_authenticated/admin")({
   component: AdminPage,
 });
 
+const ADMIN_TOKEN_KEY = "admin-gate-token";
+
+function readToken() {
+  try {
+    return window.sessionStorage.getItem(ADMIN_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeToken(token: string | null) {
+  try {
+    if (token) window.sessionStorage.setItem(ADMIN_TOKEN_KEY, token);
+    else window.sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
 function AdminPage() {
   const fetchStatus = useServerFn(getAdminGateStatus);
-  const status = useQuery({ queryKey: ["admin-gate"], queryFn: () => fetchStatus(), retry: false });
+  const [token, setToken] = useState<string | null>(() => readToken());
+  const status = useQuery({
+    queryKey: ["admin-gate", token],
+    queryFn: () => fetchStatus({ data: { token } }),
+    retry: false,
+  });
   if (status.isLoading) {
     return (
       <AppShell title="Recruiter overview" subtitle="Admin access" isAdmin>
@@ -62,11 +86,28 @@ function AdminPage() {
       </AppShell>
     );
   }
-  if (!status.data?.unlocked) return <AdminLogin onDone={() => void status.refetch()} />;
-  return <AdminContent onLogout={() => void status.refetch()} />;
+  if (!token || !status.data?.unlocked) {
+    return (
+      <AdminLogin
+        onDone={(t) => {
+          writeToken(t);
+          setToken(t);
+        }}
+      />
+    );
+  }
+  return (
+    <AdminContent
+      token={token}
+      onLogout={() => {
+        writeToken(null);
+        setToken(null);
+      }}
+    />
+  );
 }
 
-function AdminLogin({ onDone }: { onDone: () => void }) {
+function AdminLogin({ onDone }: { onDone: (token: string) => void }) {
   const login = useServerFn(adminLogin);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -78,7 +119,7 @@ function AdminLogin({ onDone }: { onDone: () => void }) {
     setError(null);
     try {
       const res = await login({ data: { username, password } });
-      if (res.ok) onDone();
+      if (res.ok && res.token) onDone(res.token);
       else setError("Incorrect username or password");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
@@ -110,12 +151,11 @@ function AdminLogin({ onDone }: { onDone: () => void }) {
   );
 }
 
-function AdminContent({ onLogout }: { onLogout: () => void }) {
+function AdminContent({ token, onLogout }: { token: string; onLogout: () => void }) {
   const fetchOverview = useServerFn(getAdminOverview);
-  const logout = useServerFn(adminLogout);
   const overview = useQuery({
-    queryKey: ["admin-overview"],
-    queryFn: () => fetchOverview({}),
+    queryKey: ["admin-overview", token],
+    queryFn: () => fetchOverview({ data: { token } }),
     retry: false,
   });
 
