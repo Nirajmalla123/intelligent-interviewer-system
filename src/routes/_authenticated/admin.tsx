@@ -14,7 +14,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { initialsOf, signedAvatarUrl } from "@/lib/avatar";
 import { getAdminOverview } from "@/lib/interview.functions";
-import { adminLogin, adminLogout, getAdminGateStatus } from "@/lib/admin-gate.functions";
+import { adminLogin, getAdminGateStatus } from "@/lib/admin-gate.functions";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useQuery } from "@tanstack/react-query";
@@ -217,7 +217,7 @@ function AdminContent({ token, onLogout }: { token: string; onLogout: () => void
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => void logout().then(onLogout)}
+                onClick={onLogout}
               >
                 Lock admin
               </Button>
