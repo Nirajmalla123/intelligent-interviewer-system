@@ -248,12 +248,15 @@ export const saveMyAccount = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+const adminTokenSchema = z.object({ token: z.string().max(200).optional() }).optional();
+
 export const getAdminOverview = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
+  .inputValidator((d: unknown) => adminTokenSchema.parse(d) ?? {})
+  .handler(async ({ context, data }) => {
     void context;
     const { requireAdminGate } = await import("./admin-gate.server");
-    await requireAdminGate();
+    requireAdminGate(data?.token);
     const { makeReportService } = await import("./services/factory.server");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     return makeReportService(supabaseAdmin as unknown as Db).adminOverview();
@@ -261,10 +264,11 @@ export const getAdminOverview = createServerFn({ method: "POST" })
 
 export const listAllInterviews = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
+  .inputValidator((d: unknown) => adminTokenSchema.parse(d) ?? {})
+  .handler(async ({ context, data }) => {
     void context;
     const { requireAdminGate } = await import("./admin-gate.server");
-    await requireAdminGate();
+    requireAdminGate(data?.token);
     const { makeReportService } = await import("./services/factory.server");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     return makeReportService(supabaseAdmin as unknown as Db).listAllInterviews();
