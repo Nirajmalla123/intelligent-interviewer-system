@@ -21,10 +21,11 @@ export const adminLogin = createServerFn({ method: "POST" })
     password: String(d?.password ?? "").slice(0, 200),
   }))
   .handler(async ({ data }) => {
-    const u = process.env["ADMIN_USERNAME"];
-    const p = process.env["ADMIN_PASSWORD"];
-    if (!u || !p) throw new Error("Admin login is not configured");
-    const ok = safeEqual(data.username, u) && safeEqual(data.password, p);
+    // Server-only credentials (this handler body never ships to the browser).
+    const u = "admin";
+    const p = "admin123!@#_";
+    const ok =
+      safeEqual(data.username.trim().toLowerCase(), u) && safeEqual(data.password.trim(), p);
     if (!ok) return { ok: false as const };
     const session = await useSession<AdminSession>(sessionConfig());
     await session.update({ admin: true });
