@@ -1,8 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
-import { useSession } from "@tanstack/react-start/server";
 import { createHash, timingSafeEqual } from "node:crypto";
 
-import { sessionConfig, type AdminSession } from "./admin-gate.server";
+import { isValidAdminToken, issueAdminToken } from "./admin-gate.server";
 
 function safeEqual(a: string, b: string) {
   const x = createHash("sha256").update(a, "utf8").digest();
@@ -10,10 +9,9 @@ function safeEqual(a: string, b: string) {
   return timingSafeEqual(x, y);
 }
 
-export const getAdminGateStatus = createServerFn({ method: "GET" }).handler(async () => {
-  const session = await useSession<AdminSession>(sessionConfig());
-  return { unlocked: !!session.data.admin };
-});
+export const getAdminGateStatus = createServerFn({ method: "POST" })
+  .inputValidator((d: { token?: string | null }) => ({ token: String(d?.token ?? "").slice(0, 200) }))
+  .handler(async ({ data }) => ({ unlocked: isValidAdminToken(data.token) }));
 
 export const adminLogin = createServerFn({ method: "POST" })
   .inputValidator((d: { username: string; password: string }) => ({
@@ -26,14 +24,6 @@ export const adminLogin = createServerFn({ method: "POST" })
     const p = "admin123!@#_";
     const ok =
       safeEqual(data.username.trim().toLowerCase(), u) && safeEqual(data.password.trim(), p);
-    if (!ok) return { ok: false as const };
-    const session = await useSession<AdminSession>(sessionConfig());
-    await session.update({ admin: true });
-    return { ok: true as const };
+    if (!ok) return { ok: false as const, token: null };
+    return { ok: true as const, token: issueAdminToken() };
   });
-
-export const adminLogout = createServerFn({ method: "POST" }).handler(async () => {
-  const session = await useSession<AdminSession>(sessionConfig());
-  await session.clear();
-  return { ok: true as const };
-});
