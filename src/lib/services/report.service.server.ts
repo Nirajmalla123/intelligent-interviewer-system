@@ -15,6 +15,7 @@ import {
 } from "@/lib/repositories/interview.repository.server";
 import { ProfileRepository } from "@/lib/repositories/profile.repository.server";
 import { InterviewService } from "./interview.service.server";
+import { IntegrityRepository } from "@/lib/repositories/integrity.repository.server";
 
 export interface AdminCandidateSummary {
   userId: string;
@@ -92,6 +93,8 @@ export class ReportService {
     }
 
     const loaded = await this.analysis.loadForAnswers(answers.map((a) => a.id));
+    const integrityRepo = new IntegrityRepository(this.userDb);
+    const [integrityReviews, securityEvents] = await Promise.all([integrityRepo.reviews(interviewId), integrityRepo.events(interviewId)]);
     const byAnswer = <T extends { answer_id: string }>(rows: T[]) =>
       new Map(rows.map((r) => [r.answer_id, r]));
     const speechMap = byAnswer(loaded.speech);
@@ -109,6 +112,7 @@ export class ReportService {
       const llm = llmMap.get(a.id);
       return {
         answerId: a.id,
+        integrity: integrityReviews.get(a.id) ?? null,
         questionText: questionText.get(a.question_id) ?? "",
         transcript: speech?.transcript ?? "",
         durationSeconds: a.duration_seconds,
@@ -227,6 +231,7 @@ export class ReportService {
       weaknesses: (report?.weaknesses ?? []) as string[],
       scores,
       answers: answerDtos,
+      securityEvents,
     };
   }
 
