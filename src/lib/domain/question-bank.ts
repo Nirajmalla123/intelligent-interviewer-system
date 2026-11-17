@@ -96,14 +96,23 @@ interface FollowUpInput {
 
 /** Select a grounded clarification or example, without invented answer content. */
 export function generateLocalFollowUp(input: FollowUpInput): string | null {
-  if (input.isLastQuestion || /introduce yourself/i.test(input.questionText)) return null;
+  if (input.isLastQuestion) return null;
   const used = new Set([input.questionText, ...input.history.map((item) => item.question), ...(input.askedQuestions ?? [])]
     .map((text) => text.trim().toLowerCase()));
   const topics = topicsFor(input.jobRole);
   const answer = input.transcript.toLowerCase();
   const topic = topics.find((item) => answer.includes(item.toLowerCase()))
     ?? topics.find((item) => input.questionText.toLowerCase().includes(item.toLowerCase()));
-  if (!topic) return null;
+  if (!topic) {
+    // A quoted statement ties the probe to the actual answer, even outside known skills.
+    const statement = input.transcript.trim().split(/[.!?\n]/).find((part) => part.trim().split(/\s+/).length >= 3)?.trim().slice(0, 120);
+    if (!statement) {
+      const clarification = `Could you explain your answer to: ${input.questionText}`;
+      return used.has(clarification.toLowerCase()) ? null : clarification;
+    }
+    const candidates = [`You said “${statement}”. Can you give a concrete example?`, `You said “${statement}”. Why does that matter in practice?`];
+    return candidates.find((text) => !used.has(text.toLowerCase())) ?? null;
+  }
   const shortAnswer = input.transcript.trim().split(/\s+/).filter(Boolean).length < 12;
   const candidates = shortAnswer
     ? [`Can you explain ${topic} in simple words?`, `What is one everyday use of ${topic}?`]

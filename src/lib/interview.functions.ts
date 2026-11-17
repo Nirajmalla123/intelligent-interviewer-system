@@ -12,6 +12,31 @@ const startSchema = z.object({
 
 const idSchema = z.object({ interviewId: z.string().uuid() });
 
+const securityEventSchema = z.object({
+  eventKey: z.string().uuid(), questionId: z.string().uuid().nullable(),
+  kind: z.enum(["multiple_faces", "multiple_faces_cleared", "terminated", "identity_mismatch", "identity_verified", "identity_unavailable", "sustained_gaze_away", "possible_background_voice"]),
+  observedAt: z.string().datetime(), details: z.string().max(500),
+});
+export const recordSecurityEvents = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => z.object({ interviewId: z.string().uuid(), events: z.array(securityEventSchema).max(30) }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { data: interview, error } = await context.supabase.from("interviews").select("id,candidate_id").eq("id", data.interviewId).single();
+    if (error || interview?.candidate_id !== context.userId) throw new Error("Interview access denied");
+    const questionIds = data.events.map((event) => event.questionId).filter((id): id is string => id !== null);
+    if (questionIds.length) {
+      const { data: questions, error: questionError } = await context.supabase.from("questions").select("id").eq("interview_id", data.interviewId).in("id", questionIds);
+      if (questionError || questionIds.some((id) => !questions?.some((q) => q.id === id))) throw new Error("Invalid interview question");
+    }
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error: writeError } = await supabaseAdmin.from("interview_security_events").upsert(data.events.map((event) => ({
+      event_key: event.eventKey, interview_id: data.interviewId, question_id: event.questionId,
+      kind: event.kind, observed_at: event.observedAt, details: event.details,
+    })), { onConflict: "event_key", ignoreDuplicates: true });
+    if (writeError) throw new Error(writeError.message);
+    return { ok: true };
+  });
+
 const faceSchema = z.object({
   faceDetectedRatio: z.number(),
   eyeContactRatio: z.number(),
