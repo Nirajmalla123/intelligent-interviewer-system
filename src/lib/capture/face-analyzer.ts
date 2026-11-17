@@ -10,6 +10,8 @@ interface Sample {
   pitch: number;
   blinking: boolean;
   emotion: { happy: number; sad: number; angry: number; surprise: number; fear: number };
+  mouthOpen?: number;
+  gazeAway?: boolean;
 }
 
 const rad2deg = (r: number) => (r * 180) / Math.PI;
@@ -147,6 +149,8 @@ export class FaceAnalyzer {
       yaw,
       pitch,
       blinking: blink,
+      mouthOpen: score(map, "jawOpen"),
+      gazeAway: Math.abs(yaw) > 25 || Math.abs(pitch) > 25 || Math.max(score(map, "eyeLookOutLeft"), score(map, "eyeLookOutRight"), score(map, "eyeLookDownLeft"), score(map, "eyeLookDownRight")) > 0.65,
       emotion: { happy, sad, angry, surprise, fear },
     });
   }
@@ -186,6 +190,15 @@ export class FaceAnalyzer {
     const best = Object.entries(totals).sort((a, b) => b[1] - a[1])[0];
     if (!best || best[1] / recent.length < 0.12) return "neutral";
     return best[0];
+  }
+
+  liveIntegritySignals() {
+    const recent = this.samples.slice(-4).filter((sample) => sample.detected);
+    return {
+      facePresent: recent.length >= 3,
+      gazeAway: recent.length >= 3 && recent.every((sample) => sample.gazeAway),
+      mouthStill: recent.length >= 3 && recent.every((sample) => (sample.mouthOpen ?? 0) < 0.04),
+    };
   }
 
   results(): { face: FaceMetrics; emotion: EmotionMetrics } {

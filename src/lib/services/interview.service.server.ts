@@ -21,6 +21,7 @@ import {
   ResumeRepository,
 } from "@/lib/repositories/profile.repository.server";
 import { verifyResumeName } from "@/lib/domain/resume-verification";
+import { IntegrityRepository } from "@/lib/repositories/integrity.repository.server";
 
 const QUESTIONS_PER_INTERVIEW = 12;
 
@@ -175,6 +176,9 @@ export class InterviewService {
     if (interview.status !== "in_progress") {
       throw new Error("This interview has ended and no longer accepts answers.");
     }
+    if (interview.candidate_id !== input.candidateId || question.interview_id !== interview.id) {
+      throw new Error("This answer does not belong to your interview.");
+    }
     const allQuestions = await this.questions.listByInterview(input.interviewId);
     const answeredCount = priorAnswers.length;
     const isLastQuestion = answeredCount + 1 >= allQuestions.length;
@@ -195,6 +199,8 @@ export class InterviewService {
       );
 
       const history = await this.buildHistory(priorAnswers, allQuestions);
+      const integrityRepo = new IntegrityRepository(this.adminDb);
+      const securityEvents = (await integrityRepo.events(input.interviewId)).filter((event) => event.questionId === question.id);
 
       const llm = await this.ai.evaluateAnswer({
         jobRole: interview.job_role,
@@ -206,8 +212,9 @@ export class InterviewService {
         face: input.face,
         emotion: input.emotion,
         voice: input.voice,
-        isLastQuestion: isLastQuestion || question.is_followup,
+        isLastQuestion: question.is_followup,
         askedQuestions: allQuestions.map((item) => item.text),
+        securityEvents,
       });
 
       await Promise.all([
@@ -216,13 +223,14 @@ export class InterviewService {
         this.analysis.saveEmotion(answer.id, input.emotion),
         this.analysis.saveVoice(answer.id, input.voice),
         this.analysis.saveLlm(answer.id, llm),
+        ...(llm.integrity ? [integrityRepo.saveReview(answer.id, input.interviewId, llm.integrity)] : []),
       ]);
       await this.answers.markComplete(answer.id);
 
       await this.recomputeScores(input.interviewId);
 
       let followUpQuestion: QuestionDto | null = null;
-      if (llm.followUpQuestion && !isLastQuestion) {
+      if (llm.followUpQuestion && !question.is_followup) {
         const nextIndex = (await this.questions.maxOrderIndex(input.interviewId)) + 1;
         const [row] = await this.questions.createMany([
           {

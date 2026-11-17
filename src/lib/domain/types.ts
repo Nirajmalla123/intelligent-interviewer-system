@@ -61,6 +61,7 @@ export interface LlmEvaluation {
   strengths: string[];
   weaknesses: string[];
   followUpQuestion: string | null;
+  integrity?: import("./integrity").IntegrityReview;
 }
 
 export interface ScoreBreakdown {
@@ -93,6 +94,7 @@ export interface AnswerAnalysisDto {
   emotion: EmotionMetrics | null;
   voice: VoiceMetrics | null;
   llm: LlmEvaluation | null;
+  integrity?: import("./integrity").IntegrityReview | null;
 }
 
 export interface ReportDto {
@@ -109,6 +111,7 @@ export interface ReportDto {
   weaknesses: string[];
   scores: ScoreBreakdown;
   answers: AnswerAnalysisDto[];
+  securityEvents: import("./integrity").SecurityEvent[];
 }
 
 export const JOB_ROLES = [

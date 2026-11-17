@@ -14,6 +14,42 @@ export type Database = {
   }
   public: {
     Tables: {
+      answer_integrity_reviews: {
+        Row: {
+          answer_id: string
+          assessed_at: string
+          interview_id: string
+          review: Json
+        }
+        Insert: {
+          answer_id: string
+          assessed_at?: string
+          interview_id: string
+          review: Json
+        }
+        Update: {
+          answer_id?: string
+          assessed_at?: string
+          interview_id?: string
+          review?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "answer_integrity_reviews_answer_id_fkey"
+            columns: ["answer_id"]
+            isOneToOne: true
+            referencedRelation: "answers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "answer_integrity_reviews_interview_id_fkey"
+            columns: ["interview_id"]
+            isOneToOne: false
+            referencedRelation: "interviews"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       answers: {
         Row: {
           analysis_error: string | null
@@ -238,6 +274,57 @@ export type Database = {
             columns: ["interview_id"]
             isOneToOne: true
             referencedRelation: "interviews"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      interview_security_events: {
+        Row: {
+          details: string
+          event_key: string
+          id: string
+          interview_id: string
+          kind: string
+          observed_at: string
+          question_id: string | null
+          received_at: string
+          source: string
+        }
+        Insert: {
+          details: string
+          event_key: string
+          id?: string
+          interview_id: string
+          kind: string
+          observed_at: string
+          question_id?: string | null
+          received_at?: string
+          source?: string
+        }
+        Update: {
+          details?: string
+          event_key?: string
+          id?: string
+          interview_id?: string
+          kind?: string
+          observed_at?: string
+          question_id?: string | null
+          received_at?: string
+          source?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "interview_security_events_interview_id_fkey"
+            columns: ["interview_id"]
+            isOneToOne: false
+            referencedRelation: "interviews"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "interview_security_events_question_id_fkey"
+            columns: ["question_id"]
+            isOneToOne: false
+            referencedRelation: "questions"
             referencedColumns: ["id"]
           },
         ]

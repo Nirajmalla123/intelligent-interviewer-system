@@ -4,7 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/integrations/supabase/client";
 import type { QuestionDto } from "@/lib/domain/types";
-import { checkMyIdentity, completeInterview, processAnswer, terminateInterview } from "@/lib/interview.functions";
+import { checkMyIdentity, completeInterview, processAnswer, terminateInterview, recordSecurityEvents } from "@/lib/interview.functions";
+import { persistentMultipleFaces, type SecurityEvent } from "@/lib/domain/integrity";
 import { useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { CheckCircle2, Loader2, ShieldAlert, Square, Video, Volume2 } from "lucide-react";
@@ -41,7 +42,6 @@ const SILENCE_LEVEL = 0.035;
 const SILENCE_TO_STOP_MS = 2500;
 const TICK_MS = 250;
 /** Multiple faces must persist this long before the interview is terminated. */
-const MULTI_FACE_CONFIRM_MS = 2000;
 /** How often the live face is re-compared with the verified reference face. */
 const IDENTITY_CHECK_MS = 20000;
 const TERMINATED_MESSAGE = "Multiple Faces Detected — Interview Terminated for Security Reasons.";
@@ -66,6 +66,22 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
   const submitAnswer = useServerFn(processAnswer);
   const finish = useServerFn(completeInterview);
   const terminate = useServerFn(terminateInterview);
+  const saveEvents = useServerFn(recordSecurityEvents);
+  const eventBufferRef = useRef<SecurityEvent[]>([]);
+  const activeQuestionRef = useRef<string | null>(null);
+  const eventWritesRef = useRef<Promise<unknown>[]>([]);
+  const logEvent = useCallback((kind: SecurityEvent["kind"], details: string) => {
+    eventBufferRef.current.push({ eventKey: crypto.randomUUID(), questionId: activeQuestionRef.current, kind, observedAt: new Date().toISOString(), details });
+  }, []);
+  const flushEvents = useCallback(async () => {
+    const batch = eventBufferRef.current.splice(0, 30);
+    if (!batch.length) return;
+    try { await saveEvents({ data: { interviewId, events: batch } }); }
+    catch (error) {
+      eventBufferRef.current.unshift(...batch);
+      throw error;
+    }
+  }, [interviewId, saveEvents]);
   const [multiFaceWarning, setMultiFaceWarning] = useState(false);
   const multiSinceRef = useRef<number | null>(null);
   const clearFramesRef = useRef(0);
@@ -81,6 +97,10 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
     [...questions].sort((a, b) => a.orderIndex - b.orderIndex),
   );
   const [answered, setAnswered] = useState<string[]>(answeredQuestionIds);
+  const queueRef = useRef(queue);
+  const answeredRef = useRef(answered);
+  queueRef.current = queue;
+  answeredRef.current = answered;
   const [phase, setPhase] = useState<Phase>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [seconds, setSeconds] = useState(0);
@@ -242,7 +262,13 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
           if (result.followUpQuestion) {
             const followUp = result.followUpQuestion as QuestionDto;
             setQueue((prev) =>
-              prev.some((q) => q.id === followUp.id) ? prev : [...prev, followUp],
+              prev.some((q) => q.id === followUp.id) ? prev : (() => {
+                const next = prev.findIndex((q) => !answeredRef.current.includes(q.id) && q.id !== runningQuestionRef.current);
+                const updated = [...prev];
+                updated.splice(next < 0 ? updated.length : next, 0, followUp);
+                queueRef.current = updated;
+                return updated;
+              })(),
             );
           }
         } catch (error) {
@@ -269,6 +295,13 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
       // Detailed/final analysis only after every background answer has landed.
       await Promise.allSettled(pendingRef.current);
       pendingRef.current = [];
+      if (queueRef.current.some((question) => !answeredRef.current.includes(question.id))) {
+        finishingRef.current = false;
+        setPhase("next_question");
+        return;
+      }
+      await Promise.all(eventWritesRef.current);
+      await flushEvents();
       await finish({ data: { interviewId } });
       teardown();
       setPhase("completed");
@@ -281,7 +314,7 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
       );
       setPhase("error");
     }
-  }, [finish, interviewId, navigate, teardown]);
+  }, [finish, flushEvents, interviewId, navigate, teardown]);
 
   /**
    * One question cycle: speak → auto-record → auto-stop on 2.5s of silence →
@@ -291,6 +324,7 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
     async (question: QuestionDto) => {
       const stream = streamRef.current;
       if (!stream || !videoRef.current) return;
+      activeQuestionRef.current = question.id;
 
       setPhase("question_speaking");
       try {
@@ -336,6 +370,10 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
         recorder.onstop = () => resolve(new Blob(chunksRef.current, { type: "video/webm" }));
         let silentMs = 0;
         let elapsedMs = 0;
+        let gazeMs = 0;
+        let backgroundMs = 0;
+        let gazeLogged = false;
+        let backgroundLogged = false;
         clearTick();
         tickRef.current = setInterval(() => {
           if (pausedRef.current) return;
@@ -346,6 +384,17 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
           setLevel(live);
           setEyeContact(faceRef.current?.liveEyeContact() ?? 0);
           setEmotion(faceRef.current?.liveDominantEmotion() ?? "neutral");
+          const signals = faceRef.current?.liveIntegritySignals();
+          gazeMs = signals?.gazeAway ? gazeMs + TICK_MS : 0;
+          backgroundMs = signals?.facePresent && signals.mouthStill && live > 0.08 ? backgroundMs + TICK_MS : 0;
+          if (gazeMs >= 3000 && !gazeLogged) {
+            gazeLogged = true;
+            logEvent("sustained_gaze_away", "Eyes or head directed away for at least 3 seconds; may reflect normal thinking or accessibility needs.");
+          }
+          if (backgroundMs >= 2000 && !backgroundLogged) {
+            backgroundLogged = true;
+            logEvent("possible_background_voice", "Microphone activity with little visible mouth movement for 2 seconds. Possible off-camera audio; noise or quiet articulation may explain this. Speaker identity is not established.");
+          }
 
           silentMs = live < SILENCE_LEVEL ? silentMs + TICK_MS : 0;
           const enoughSilence =
@@ -368,6 +417,7 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
       voiceRef.current?.stop();
       const vision = faceRef.current?.results() ?? null;
       const voice = voiceRef.current?.results() ?? null;
+      await flushEvents().catch((error) => setAnalysisWarning(`Security evidence could not be saved: ${error instanceof Error ? error.message : "connection interrupted"}`));
 
       setAnswered((prev) => (prev.includes(question.id) ? prev : [...prev, question.id]));
       if (vision && voice) {
@@ -382,7 +432,7 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
       }
       setPhase("next_question");
     },
-    [analyseInBackground, speak],
+    [analyseInBackground, flushEvents, logEvent, speak],
   );
 
   const captureFrame = useCallback((): string | null => {
@@ -396,21 +446,23 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
   }, []);
 
   const pauseForIdentity = useCallback((reason: string) => {
+    logEvent("identity_mismatch", reason);
     pausedRef.current = true;
     setIdentityPause(reason);
     audioRef.current?.pause();
     const rec = recorderRef.current;
     if (rec && rec.state === "recording") rec.pause();
-  }, []);
+  }, [logEvent]);
 
   const resumeAfterIdentity = useCallback(() => {
+    logEvent("identity_verified", "Face re-verification passed; interview resumed.");
     pausedRef.current = false;
     setIdentityPause(null);
     const audio = audioRef.current;
     if (audio && audio.src && audio.paused && !audio.ended) void audio.play().catch(() => undefined);
     const rec = recorderRef.current;
     if (rec && rec.state === "paused") rec.resume();
-  }, []);
+  }, [logEvent]);
 
   /** Compares the current frame with the verified face; pauses on mismatch. */
   const runIdentityCheck = useCallback(
@@ -435,6 +487,7 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
           pauseForIdentity(result.reason);
         }
       } catch (error) {
+        logEvent("identity_unavailable", error instanceof Error ? error.message.slice(0, 400) : "Identity check unavailable");
         // Network/AI hiccups never pause the interview; only explicit mismatches do.
         if (manual) toast.error(error instanceof Error ? error.message : "Verification failed");
       } finally {
@@ -442,7 +495,7 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
         if (manual) setReverifying(false);
       }
     },
-    [captureFrame, checkIdentity, pauseForIdentity, resumeAfterIdentity],
+    [captureFrame, checkIdentity, logEvent, pauseForIdentity, resumeAfterIdentity],
   );
 
   const arm = useCallback(async () => {
@@ -474,10 +527,13 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
           if (terminatedRef.current) return;
           const now = performance.now();
           if (count > 1) {
+            if (multiSinceRef.current === null) logEvent("multiple_faces", `${count} faces observed; confirmation timer started.`);
             clearFramesRef.current = 0;
             multiSinceRef.current ??= now;
             setMultiFaceWarning(true);
-            if (now - multiSinceRef.current >= MULTI_FACE_CONFIRM_MS) {
+            if (persistentMultipleFaces(multiSinceRef.current, now)) {
+              logEvent("terminated", "Multiple faces persisted for 2 seconds; interview terminated.");
+              eventWritesRef.current.push(flushEvents().catch((error) => toast.error(error instanceof Error ? error.message : "Could not save security evidence")));
               terminatedRef.current = true;
               finishingRef.current = true;
               teardown();
@@ -488,6 +544,7 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
             // Require two clean frames in a row before dismissing a detection.
             clearFramesRef.current += 1;
             if (clearFramesRef.current >= 2) {
+              if (multiSinceRef.current !== null) logEvent("multiple_faces_cleared", "Transient multiple-face observation cleared before termination.");
               multiSinceRef.current = null;
               setMultiFaceWarning(false);
             }
@@ -510,7 +567,7 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
       );
       setPhase("error");
     }
-  }, [interviewId, runIdentityCheck, teardown, terminate]);
+  }, [flushEvents, interviewId, logEvent, runIdentityCheck, teardown, terminate]);
 
   // Single driver: whenever the next question is due, run exactly one cycle.
   useEffect(() => {

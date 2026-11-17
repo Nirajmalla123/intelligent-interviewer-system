@@ -1,4 +1,5 @@
 import { AppShell } from "@/components/layout/AppShell";
+import { IntegrityReport } from "@/components/interview/IntegrityReport";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -209,6 +210,8 @@ function ReportPage() {
             </CardContent>
           </Card>
         </div>
+
+        <IntegrityReport answers={data.answers} events={data.securityEvents} />
 
         <Card>
           <CardHeader>
