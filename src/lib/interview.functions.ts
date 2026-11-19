@@ -351,5 +351,13 @@ export const terminateInterview = createServerFn({ method: "POST" })
       .eq("id", data.interviewId)
       .eq("candidate_id", context.userId);
     if (error) throw new Error(error.message);
+    const { data: owned } = await context.supabase.from("interviews").select("id").eq("id", data.interviewId).eq("candidate_id", context.userId).maybeSingle();
+    if (!owned) throw new Error("Interview access denied");
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error: eventError } = await supabaseAdmin.from("interview_security_events").insert({
+      event_key: crypto.randomUUID(), interview_id: data.interviewId, kind: "terminated",
+      observed_at: new Date().toISOString(), details: data.reason, source: "server_termination",
+    });
+    if (eventError) throw new Error(eventError.message);
     return { ok: true };
   });

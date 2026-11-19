@@ -70,16 +70,18 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
   const eventBufferRef = useRef<SecurityEvent[]>([]);
   const activeQuestionRef = useRef<string | null>(null);
   const eventWritesRef = useRef<Promise<unknown>[]>([]);
+  const endEarlyRef = useRef(false);
   const logEvent = useCallback((kind: SecurityEvent["kind"], details: string) => {
     eventBufferRef.current.push({ eventKey: crypto.randomUUID(), questionId: activeQuestionRef.current, kind, observedAt: new Date().toISOString(), details });
   }, []);
   const flushEvents = useCallback(async () => {
-    const batch = eventBufferRef.current.splice(0, 30);
-    if (!batch.length) return;
-    try { await saveEvents({ data: { interviewId, events: batch } }); }
-    catch (error) {
-      eventBufferRef.current.unshift(...batch);
-      throw error;
+    while (eventBufferRef.current.length) {
+      const batch = eventBufferRef.current.splice(0, 30);
+      try { await saveEvents({ data: { interviewId, events: batch } }); }
+      catch (error) {
+        eventBufferRef.current.unshift(...batch);
+        throw error;
+      }
     }
   }, [interviewId, saveEvents]);
   const [multiFaceWarning, setMultiFaceWarning] = useState(false);
@@ -251,6 +253,7 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
           form.set("voice", JSON.stringify(voice));
           form.set("media", new File([blob], "answer.webm", { type: "video/webm" }));
 
+          await Promise.all(eventWritesRef.current);
           const result = await submitAnswer({ data: form });
           if (abandonedRef.current) return;
           setFeedback({
@@ -261,15 +264,13 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
           });
           if (result.followUpQuestion) {
             const followUp = result.followUpQuestion as QuestionDto;
-            setQueue((prev) =>
-              prev.some((q) => q.id === followUp.id) ? prev : (() => {
-                const next = prev.findIndex((q) => !answeredRef.current.includes(q.id) && q.id !== runningQuestionRef.current);
-                const updated = [...prev];
-                updated.splice(next < 0 ? updated.length : next, 0, followUp);
-                queueRef.current = updated;
-                return updated;
-              })(),
-            );
+            if (!queueRef.current.some((q) => q.id === followUp.id)) {
+              const next = queueRef.current.findIndex((q) => !answeredRef.current.includes(q.id) && q.id !== runningQuestionRef.current);
+              const updated = [...queueRef.current];
+              updated.splice(next < 0 ? updated.length : next, 0, followUp);
+              queueRef.current = updated;
+              setQueue(updated);
+            }
           }
         } catch (error) {
           setAnalysisWarning(
@@ -295,7 +296,7 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
       // Detailed/final analysis only after every background answer has landed.
       await Promise.allSettled(pendingRef.current);
       pendingRef.current = [];
-      if (queueRef.current.some((question) => !answeredRef.current.includes(question.id))) {
+      if (!endEarlyRef.current && queueRef.current.some((question) => !answeredRef.current.includes(question.id))) {
         finishingRef.current = false;
         setPhase("next_question");
         return;
@@ -417,9 +418,10 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
       voiceRef.current?.stop();
       const vision = faceRef.current?.results() ?? null;
       const voice = voiceRef.current?.results() ?? null;
-      await flushEvents().catch((error) => setAnalysisWarning(`Security evidence could not be saved: ${error instanceof Error ? error.message : "connection interrupted"}`));
-
-      setAnswered((prev) => (prev.includes(question.id) ? prev : [...prev, question.id]));
+      const eventWrite = flushEvents().catch((error) => setAnalysisWarning(`Security evidence could not be saved: ${error instanceof Error ? error.message : "connection interrupted"}`));
+      eventWritesRef.current.push(eventWrite);
+      answeredRef.current = [...answeredRef.current, question.id];
+      setAnswered(answeredRef.current);
       if (vision && voice) {
         analyseInBackground(
           question,
@@ -590,6 +592,7 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
   }, []);
 
   const endEarly = useCallback(() => {
+    endEarlyRef.current = true;
     void finalise();
   }, [finalise]);
 

@@ -119,5 +119,9 @@ export function generateLocalFollowUp(input: FollowUpInput): string | null {
     : input.seniority === "junior"
       ? [`Can you give one simple example of ${topic}?`, `How would you use ${topic}?`]
       : [`Why did you choose ${topic} in that example?`, `What did you learn from using ${topic}?`, `How would you check that ${topic} works correctly?`];
-  return candidates.find((text) => !used.has(text.toLowerCase())) ?? null;
+  const unused = candidates.find((text) => !used.has(text.toLowerCase()));
+  if (unused) return unused;
+  const statement = input.transcript.trim().split(/[.!?\n]/).find((part) => part.trim().split(/\s+/).length >= 3)?.trim().slice(0, 120);
+  if (!statement) return null;
+  return [`You said “${statement}”. Can you walk through a specific example?`, `You said “${statement}”. What would you change if it did not work?`].find((text) => !used.has(text.toLowerCase())) ?? null;
 }

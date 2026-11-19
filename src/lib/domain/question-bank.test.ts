@@ -59,7 +59,10 @@ describe("local adaptive follow-ups", () => {
     const first = generateLocalFollowUp(input);
     const second = generateLocalFollowUp({ ...input, history: [{ question: first ?? "", transcript: "HTML" }] });
     expect(second).toBe("What is one everyday use of HTML?");
-    expect(generateLocalFollowUp({ ...input, askedQuestions: [first ?? "", second ?? ""] })).toBeNull();
+    const third = generateLocalFollowUp({ ...input, askedQuestions: [first ?? "", second ?? ""] });
+    expect(third).toContain("HTML describes a webpage");
+    expect(third).not.toBe(first);
+    expect(third).not.toBe(second);
   });
 
   test("longer answers receive an example question rather than clarification", () => {
