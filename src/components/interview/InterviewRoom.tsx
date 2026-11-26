@@ -191,9 +191,19 @@ export function InterviewRoom({ interviewId, jobRole, questions, answeredQuestio
           body: JSON.stringify({ text }),
         });
         if (!response.ok) {
-          throw new Error(
-            (await response.text().catch(() => "")) || "The interviewer voice is unavailable",
-          );
+          // AI voice unavailable (e.g. no credits): use the browser's free built-in voice.
+          if (abandonedRef.current) return;
+          if (typeof window !== "undefined" && "speechSynthesis" in window) {
+            await new Promise<void>((resolve) => {
+              const utterance = new SpeechSynthesisUtterance(text);
+              utterance.onend = () => resolve();
+              utterance.onerror = () => resolve();
+              window.speechSynthesis.cancel();
+              window.speechSynthesis.speak(utterance);
+            });
+            return;
+          }
+          throw new Error("The interviewer voice is unavailable");
         }
         const blob = await response.blob();
         if (abandonedRef.current) return;
