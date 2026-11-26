@@ -192,11 +192,13 @@ export class InterviewService {
     });
 
     try {
-      const speech = await resolveSpeechProvider().transcribe(
-        input.audio,
-        input.audioFileName,
-        input.durationSeconds,
-      );
+      // When AI transcription is unavailable (e.g. no credits), keep the interview going.
+      const speech = await resolveSpeechProvider()
+        .transcribe(input.audio, input.audioFileName, input.durationSeconds)
+        .catch((err: unknown) => {
+          console.warn("Transcription unavailable, continuing without transcript:", err);
+          return { transcript: "", language: null, confidence: null, wordCount: 0, speechDurationSeconds: input.durationSeconds };
+        });
 
       const history = await this.buildHistory(priorAnswers, allQuestions);
       const integrityRepo = new IntegrityRepository(this.adminDb);

@@ -135,6 +135,15 @@ export class InterviewerAi {
   }
 
   async evaluateAnswer(request: EvaluationRequest): Promise<LlmEvaluation> {
+    try {
+      return await this.evaluateWithAi(request);
+    } catch (err) {
+      console.warn("AI evaluation unavailable, using local scoring:", err);
+      return localEvaluation(request);
+    }
+  }
+
+  private async evaluateWithAi(request: EvaluationRequest): Promise<LlmEvaluation> {
     const raw = await this.provider.completeJson<Record<string, unknown>>({
       schemaName: "answer_evaluation",
       schema: EVALUATION_SCHEMA,
@@ -196,6 +205,20 @@ export class InterviewerAi {
   }
 
   async summariseInterview(request: SummaryRequest): Promise<SummaryResult> {
+    try {
+      return await this.summariseWithAi(request);
+    } catch (err) {
+      console.warn("AI summary unavailable, using local summary:", err);
+      return {
+        summary: `Interview for ${request.jobRole} (${request.seniority}) with ${request.perAnswer.length} answers. Detailed AI commentary was unavailable, so this report uses locally computed scores.`,
+        strengths: [...new Set(request.perAnswer.flatMap((a) => a.strengths))].slice(0, 6),
+        weaknesses: [...new Set(request.perAnswer.flatMap((a) => a.weaknesses))].slice(0, 6),
+        recommendationNote: "Review the recorded answers to confirm this assessment.",
+      };
+    }
+  }
+
+  private async summariseWithAi(request: SummaryRequest): Promise<SummaryResult> {
     const raw = await this.provider.completeJson<Record<string, unknown>>({
       schemaName: "interview_summary",
       schema: SUMMARY_SCHEMA,
@@ -229,4 +252,32 @@ export class InterviewerAi {
         typeof raw["recommendation_note"] === "string" ? raw["recommendation_note"] : "",
     };
   }
+}
+
+/** Free local scoring used when the AI service is unavailable. */
+function localEvaluation(request: EvaluationRequest): LlmEvaluation {
+  const words = request.transcript.trim().split(/\s+/).filter(Boolean);
+  const hasText = words.length > 0;
+  const length = Math.min(1, words.length / 80);
+  const qWords = new Set(request.questionText.toLowerCase().match(/[a-z]{4,}/g) ?? []);
+  const overlap = hasText && qWords.size > 0
+    ? words.filter((w) => qWords.has(w.toLowerCase().replace(/[^a-z]/g, ""))).length / qWords.size
+    : 0;
+  const wpm = request.voice.speechRateWpm;
+  const pace = wpm >= 100 && wpm <= 170 ? 1 : wpm > 0 ? 0.7 : 0.5;
+  const base = hasText ? 45 : 50;
+  return {
+    provider: "local",
+    model: "heuristic",
+    technicalScore: clampScore(base + length * 35),
+    communicationScore: clampScore(45 + pace * 25 + request.face.eyeContactRatio * 20),
+    relevanceScore: clampScore(hasText ? 45 + Math.min(1, overlap) * 45 : 50),
+    grammarScore: clampScore(hasText ? 60 + length * 20 : 50),
+    evaluation: hasText
+      ? "Scored locally (AI assessment unavailable) from answer length, relevance to the question and delivery."
+      : "Scored locally from delivery signals only; a transcript was not available for this answer.",
+    strengths: request.face.eyeContactRatio > 0.6 ? ["Maintained good eye contact"] : [],
+    weaknesses: hasText && words.length < 25 ? ["Answer was quite short"] : [],
+    followUpQuestion: generateLocalFollowUp(request),
+  };
 }
